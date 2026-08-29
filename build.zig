@@ -500,6 +500,7 @@ fn build_ci(
         smoke, // Quickly check formatting and such.
         @"test", // Main test suite + VOPR + fuzzers, excluding clients.
         aof, // Dedicated test for AOF, which is somewhat slow to run.
+        wasm, // Build src/wasm/tb_wasm.zig and test it under workerd.
 
         clients, // Tests for all language clients below.
         dotnet,
@@ -570,6 +571,18 @@ fn build_ci(
         const aof = b.addSystemCommand(&.{"./.github/ci/test_aof.sh"});
         hide_stderr(aof);
         step_ci.dependOn(&aof.step);
+    }
+    if (all or mode == .wasm) {
+        // Not `build_ci_step`: `test_wasm_worker.sh` needs `zig-out/wasm/tb_wasm.wasm` to
+        // already exist, so it must depend on this step specifically rather than merely being
+        // a sibling dependency of `step_ci` (which wouldn't guarantee ordering between them).
+        const build_wasm_cmd = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "wasm" });
+        build_wasm_cmd.max_stdio_size = 128 * MiB;
+        hide_stderr(build_wasm_cmd);
+
+        const wasm_worker = b.addSystemCommand(&.{"./.github/ci/test_wasm_worker.sh"});
+        wasm_worker.step.dependOn(&build_wasm_cmd.step);
+        step_ci.dependOn(&wasm_worker.step);
     }
     inline for (&.{ CIMode.dotnet, .go, .rust, .java, .node, .python, .ruby }) |language| {
         if (default or mode == .clients or mode == language) {

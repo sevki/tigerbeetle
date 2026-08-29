@@ -1249,6 +1249,7 @@ const DeadFilesDetector = struct {
             "service_worker_writer.zig",
             "single_page_writer.zig",
             "tb_client_header.zig",
+            "tb_wasm.zig",
             "unit_tests.zig",
             "vopr.zig",
             "vortex.zig",
@@ -1417,6 +1418,7 @@ test "tidy unix permissions" {
         "zig/download.ps1",
         "zig/download.sh",
         ".github/ci/test_aof.sh",
+        ".github/ci/test_wasm_worker.sh",
         "src/scripts/cfo_supervisor.sh",
     };
 
@@ -1450,12 +1452,12 @@ test "tidy unix permissions" {
 // Sanity check for "unexpected" files in the repository.
 test "tidy extensions" {
     const allowed_extensions = std.StaticStringMap(void).initComptime(.{
-        .{".c"},    .{".cs"},      .{".csproj"}, .{".css"},   .{".go"},
-        .{".h"},    .{".hcl"},     .{".html"},   .{".java"},  .{".js"},
-        .{".json"}, .{".md"},      .{".mod"},    .{".props"}, .{".py"},
-        .{".rs"},   .{".service"}, .{".sln"},    .{".sum"},   .{".svg"},
-        .{".toml"}, .{".ts"},      .{".txt"},    .{".xml"},   .{".yml"},
-        .{".zig"},  .{".zon"},     .{".rb"},
+        .{".c"},     .{".cs"},  .{".csproj"}, .{".css"},     .{".go"},
+        .{".h"},     .{".hcl"}, .{".html"},   .{".java"},    .{".js"},
+        .{".json"},  .{".md"},  .{".mjs"},    .{".mod"},     .{".mts"},
+        .{".props"}, .{".py"},  .{".rs"},     .{".service"}, .{".sln"},
+        .{".sum"},   .{".svg"}, .{".toml"},   .{".ts"},      .{".txt"},
+        .{".xml"},   .{".yml"}, .{".zig"},    .{".zon"},     .{".rb"},
     });
 
     const exceptions = std.StaticStringMap(void).initComptime(.{
@@ -1481,6 +1483,8 @@ test "tidy extensions" {
         .{"zig/download.win.ps1"},
         .{"src/scripts/cfo_supervisor.sh"},
         .{".github/ci/test_aof.sh"},
+        .{".github/ci/test_wasm_worker.sh"},
+        .{"src/clients/wasm-worker/wrangler.jsonc"},
         .{"src/clients/python/pyproject.toml"},
         .{"src/clients/python/src/tigerbeetle/py.typed"},
         .{".clang-format"},
