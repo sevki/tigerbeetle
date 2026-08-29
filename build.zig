@@ -215,7 +215,12 @@ pub fn build(b: *std.Build) !void {
     });
 
     var releases_previous = release_history(b);
-    const tigerbeetle_test_previous = fetch_release(b, releases_previous.next().?, target, mode);
+    // A fork without any `X.Y.Z` release tags in its history (e.g. one that was never pushed
+    // the upstream tags) has no local tag to test upgrading from; fall back to the latest
+    // published release rather than crashing every `zig build` invocation. On a repo with real
+    // release history this never triggers: there's always a previous tag.
+    const release_previous_tag = release_history_next(&releases_previous) orelse "latest";
+    const tigerbeetle_test_previous = fetch_release(b, release_previous_tag, target, mode);
     const tigerbeetle_test = build_tigerbeetle_executable_multiversion(b, .{
         .stdx_module = stdx_module,
         .vsr_module = vsr_module_test,
@@ -1353,9 +1358,19 @@ fn build_vortex_options(
     if (options.target.result.os.tag == .linux) {
         var tags_iterator = release_history(b);
         for (server_exes[2..], driver_exes[2..]) |*server, *driver| {
-            const tag = tags_iterator.next().?;
-            server.* = fetch_release(b, tag, options.target, options.mode);
-            driver.* = fetch_vortex_driver_zig(b, tag, options.target, options.mode);
+            // A fork without any `X.Y.Z` release tags in its history (e.g. one that was never
+            // pushed the upstream tags) has nothing to fetch a previous release from; fall back
+            // to testing against the current build rather than crashing the entire `zig build`
+            // invocation. On a repo with real release history this never triggers: there's
+            // always a next tag.
+            const tag = release_history_next(&tags_iterator);
+            if (tag) |tag_found| {
+                server.* = fetch_release(b, tag_found, options.target, options.mode);
+                driver.* = fetch_vortex_driver_zig(b, tag_found, options.target, options.mode);
+            } else {
+                server.* = options.tigerbeetle_test;
+                driver.* = options.vortex_driver_zig;
+            }
         }
     }
 
@@ -1407,6 +1422,16 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
         "--list", "[0-9]*.[0-9]*.[0-9]*", // NB: This is not anchored (^$).
     });
     return std.mem.splitScalar(u8, tags_string, '\n');
+}
+
+/// Like `iterator.next()`, but skips blank entries — `git tag --list` prints nothing (a single
+/// empty line once split) when no tag matches, which `release_history`'s callers should treat
+/// the same as "no more tags" rather than as a tag literally named "".
+fn release_history_next(iterator: *std.mem.SplitIterator(u8, .scalar)) ?[]const u8 {
+    while (iterator.next()) |candidate| {
+        if (candidate.len > 0) return candidate;
+    }
+    return null;
 }
 
 fn build_vortex_driver_zig(
