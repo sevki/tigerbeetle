@@ -1068,7 +1068,10 @@ pub fn SuperBlockType(comptime Storage: type) type {
         }
 
         pub fn grid_size_limit(superblock: *const SuperBlock) usize {
-            return superblock.storage_size_limit - data_file_size_min;
+            // `storage_size_limit` is `u64` (a general on-disk size); grid sizing is always used
+            // for in-process allocations sized `usize`, which this narrows to exactly on every
+            // supported target, including wasm32 where `usize` is 32 bits.
+            return @intCast(superblock.storage_size_limit - data_file_size_min);
         }
 
         pub fn updating(superblock: *const SuperBlock, caller: Caller) bool {

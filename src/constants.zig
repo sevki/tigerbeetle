@@ -3,6 +3,7 @@
 //! - derived configuration values,
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const vsr = @import("vsr.zig");
 const Config = @import("config.zig").Config;
@@ -140,7 +141,11 @@ pub const address = config.process.address;
 
 comptime {
     // vsr.parse_address assumes that config.address/config.port are valid.
-    _ = std.net.Address.parseIp4(address, 0) catch unreachable;
+    // std.net.Address doesn't exist on wasm32 (no posix.sockaddr) — this in-memory,
+    // single-node WASM build never listens on a real address, so the check is skipped there.
+    if (!builtin.cpu.arch.isWasm()) {
+        _ = std.net.Address.parseIp4(address, 0) catch unreachable;
+    }
     _ = @as(u16, port);
 }
 

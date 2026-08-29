@@ -1,11 +1,29 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const stdx = @import("stdx");
 const assert = std.debug.assert;
 
 const constants = @import("../constants.zig");
 
 const ProcessID = @import("../trace.zig").ProcessID;
-const IO = @import("../io.zig").IO;
+// `io.zig` hard-dispatches to io_uring/kqueue/IOCP and has no wasm32 implementation (by design:
+// wasm builds have no real disk/network). The StatsD-over-UDP trace sink references `*IO` only
+// in its type signature and is never constructed there (`.log` is the only reachable variant),
+// so on wasm32 this is just a placeholder type with the one member (`Completion`) referenced in
+// a struct field type. `trace.zig` imports this same alias so both sides agree on one type.
+pub const IO = if (builtin.cpu.arch.isWasm()) struct {
+    pub const Completion = struct {};
+
+    // `StatsD.init_udp`/`deinit` call these unconditionally in their (never-taken-on-wasm32)
+    // `.udp` branch; a real target's compiler still generates code for both switch arms, so
+    // these need to exist and type-check even though they can never actually run.
+    pub fn open_socket_udp(_: *@This(), _: anytype) !std.posix.socket_t {
+        unreachable;
+    }
+    pub fn close_socket(_: *@This(), _: std.posix.socket_t) void {
+        unreachable;
+    }
+} else @import("../io.zig").IO;
 
 const EventMetric = @import("event.zig").EventMetric;
 const EventMetricAggregate = @import("event.zig").EventMetricAggregate;

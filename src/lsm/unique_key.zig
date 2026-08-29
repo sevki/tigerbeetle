@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
 
@@ -52,7 +53,14 @@ pub fn UniqueKeyType(comptime _Key: type) type {
                 u128 => @sizeOf(u256),
                 else => unreachable,
             });
-            assert(@alignOf(UniqueKey) == @alignOf(Key));
+            // wasm32's C ABI aligns u128 to 8 bytes (vs. 16 on x86_64/aarch64), so the extern
+            // struct's alignment legitimately differs from `@alignOf(Key)` there. Everything
+            // in this WASM build is in-memory only for the lifetime of one instance (no on-disk
+            // format to keep byte-compatible across architectures), so a smaller,
+            // self-consistent alignment is harmless.
+            if (!builtin.cpu.arch.isWasm()) {
+                assert(@alignOf(UniqueKey) == @alignOf(Key));
+            }
             assert(stdx.no_padding(UniqueKey));
         }
     };

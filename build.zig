@@ -105,6 +105,7 @@ pub fn build(b: *std.Build) !void {
         .test_jni = b.step("test:jni", "Run Java JNI tests"),
         .vopr = b.step("vopr", "Run the VOPR"),
         .vopr_build = b.step("vopr:build", "Build the VOPR"),
+        .wasm = b.step("wasm", "Build the in-memory single-node WASM module"),
     };
 
     const mode = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
@@ -246,6 +247,13 @@ pub fn build(b: *std.Build) !void {
         .stdx_module = stdx_module,
         .vsr_module = vsr_module,
         .target = target,
+        .mode = mode,
+    });
+
+    // zig build wasm
+    build_wasm(b, build_steps.wasm, .{
+        .stdx_module = stdx_module,
+        .vsr_module = vsr_module,
         .mode = mode,
     });
 
@@ -674,6 +682,58 @@ fn build_check(
     tigerbeetle.root_module.addImport("stdx", options.stdx_module);
     tigerbeetle.root_module.addImport("vsr", options.vsr_module);
     step_check.dependOn(&tigerbeetle.step);
+}
+
+/// Builds `src/wasm/tb_wasm.zig`: a single-node, in-memory TigerBeetle engine (production state
+/// machine + LSM, backed by the deterministic in-memory `testing/storage.zig`) compiled to
+/// wasm32-freestanding, for embedding in Cloudflare Workers/workerd or browsers. No production
+/// `src/io.zig` code is reachable from this entry point: there is no real disk or network IO
+/// here, by design, not because wasm32 support was bolted onto it.
+fn build_wasm(
+    b: *std.Build,
+    step_wasm: *std.Build.Step,
+    options: struct {
+        stdx_module: *std.Build.Module,
+        vsr_module: *std.Build.Module,
+        mode: std.builtin.OptimizeMode,
+    },
+) void {
+    // wasm32-wasi (not freestanding): `src/constants.zig`/`src/vsr/superblock.zig` reach
+    // `std.net.Address` at comptime regardless of what runtime code path is taken, and
+    // `std.heap.GeneralPurposeAllocator`'s error-log path reaches `std.Thread`/`std.posix` file
+    // descriptors — none of which exist for freestanding. WASI's minimal libc/posix shim covers
+    // all of this for free without needing to touch that code.
+    const target = b.resolveTargetQuery(Query.parse(.{
+        .arch_os_abi = "wasm32-wasi",
+    }) catch unreachable);
+
+    const wasm = b.addExecutable(.{
+        .name = "tb_wasm",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/wasm/tb_wasm.zig"),
+            .target = target,
+            .optimize = options.mode,
+        }),
+    });
+    wasm.root_module.addImport("stdx", options.stdx_module);
+    wasm.root_module.addImport("vsr", options.vsr_module);
+    // "reactor" model: no `_start`/`main`, the module just exposes `export fn`s to be called
+    // directly by the host (workerd/JS), same shape as a plain library.
+    wasm.wasi_exec_model = .reactor;
+    wasm.rdynamic = true;
+    // wasi-libc's CRT provides `_initialize` (the reactor model's entry point) and the minimal
+    // libc surface `std.heap.page_allocator`/wasi startup code expects.
+    wasm.linkLibC();
+    // `tb_wasm.zig`'s `heap_buffer` (a large static/.bss allocator arena — see its comment for
+    // why it needs to be this big) alone needs to fit in linear memory, plus the Zig/wasi-libc
+    // stack and the module's other statics. The default linker-inferred max (sized only for
+    // required static data) is far too small and leaves `memory.grow` permanently failing.
+    wasm.max_memory = 128 * 1024 * 1024;
+
+    const install = b.addInstallArtifact(wasm, .{
+        .dest_dir = .{ .override = .{ .custom = "wasm" } },
+    });
+    step_wasm.dependOn(&install.step);
 }
 
 fn build_tigerbeetle(

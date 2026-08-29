@@ -13,3 +13,7 @@ tools/
 
 # Death to .DS_Store
 .DS_Store
+
+# wasm-worker: npm/wrangler local artifacts
+src/clients/wasm-worker/node_modules/
+src/clients/wasm-worker/.wrangler/

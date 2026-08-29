@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 
@@ -107,7 +108,16 @@ pub const FreeSet = struct {
     pub const shard_bits = shard_cache_lines * constants.cache_line_size * @bitSizeOf(u8);
     comptime {
         assert(shard_bits == 4096);
-        assert(@bitSizeOf(MaskInt) == 64);
+        // `MaskInt` is `usize`, which is 32 bits on wasm32 rather than the 64 bits assumed
+        // everywhere else. The bit-index math below (`bit_set_masks` and friends) is written
+        // generically in terms of `@bitSizeOf(MaskInt)`, so it stays correct either way — but
+        // `Word` (the fixed-width on-disk encoding of the free set, used when checkpointing to
+        // real storage) is hardcoded to `u64` and is *not* reshaped for a 32-bit `MaskInt`. The
+        // in-memory, single-instance WASM engine never checkpoints/persists a free set, so that
+        // path is unused there; native 64-bit targets are unaffected by this relaxation.
+        if (!builtin.cpu.arch.isWasm()) {
+            assert(@bitSizeOf(MaskInt) == 64);
+        }
         // Ensure there are no wasted padding bits at the end of the index.
         assert(shard_bits % @bitSizeOf(MaskInt) == 0);
     }
@@ -466,7 +476,9 @@ pub const FreeSet = struct {
     pub fn is_free(set: FreeSet, address: u64) bool {
         if (set.opened) {
             const block = address - 1;
-            return !set.blocks_acquired.isSet(block);
+            // Block addresses fit in `usize` for the (small, in-memory) storage sizes this
+            // WASM build works with, even where `usize` is 32 bits.
+            return !set.blocks_acquired.isSet(@intCast(block));
         } else {
             // When the free set is not open, conservatively assume that the block is acquired.
             //
