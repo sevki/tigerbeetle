@@ -14,7 +14,8 @@ tools/
 # Death to .DS_Store
 .DS_Store
 
-# wasm-worker: npm/celld local artifacts
+# wasm-worker: npm/celld/wrangler local artifacts
 src/clients/wasm-worker/node_modules/
 src/clients/wasm-worker/.celld/
 src/clients/wasm-worker/.celld-test-state/
+src/clients/wasm-worker/.wrangler/

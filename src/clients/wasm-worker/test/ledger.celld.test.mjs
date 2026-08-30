@@ -6,8 +6,10 @@ import { startCelld } from "./celld_harness.mjs";
 
 // These tests run against a real `celld dev` process (https://celld.dev), not a mock of it —
 // they prove `tb_wasm.wasm` actually loads and runs the production TigerBeetle state
-// machine/LSM under a genuine Workers/Durable-Objects-compatible runtime, driven through the
-// `TigerBeetleLedger` Durable Object exactly as deployed.
+// machine/LSM under a genuine, self-hosted Workers/Durable-Objects-compatible runtime, driven
+// through the `TigerBeetleLedger` Durable Object exactly as deployed. See
+// ledger.workerd.test.mjs for the equivalent suite against Cloudflare's own workerd — same
+// TigerBeetleLedger code, unmodified, run against both runtimes.
 const packageDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const watchDir = path.join(packageDir, ".celld-test-state");
 const port = 19870 + (Number(process.env.VITEST_POOL_ID ?? 0) % 100);
