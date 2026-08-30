@@ -948,8 +948,10 @@ pub fn GridType(comptime Storage: type) type {
                 assert(trigger == .repair);
             }
 
-            // Zero sector padding.
-            @memset(block.*[header.size..vsr.sector_ceil(header.size)], 0);
+            // Zero sector padding. `sector_ceil` returns `u64` (a general disk offset helper);
+            // blocks are always `usize`-sliceable in-process, so this narrows exactly.
+            const sector_ceil: usize = @intCast(vsr.sector_ceil(header.size));
+            @memset(block.*[header.size..sector_ceil], 0);
 
             write.* = .{
                 .callback = callback,
@@ -981,14 +983,17 @@ pub fn GridType(comptime Storage: type) type {
             const write_header = schema.header_from_block(write.block.*);
             assert(write_header.size > @sizeOf(vsr.Header));
             assert(write_header.size <= constants.block_size);
+            // `sector_ceil` returns `u64` (a general disk offset helper); blocks are always
+            // `usize`-sliceable in-process, so this narrows exactly.
+            const write_sector_ceil: usize = @intCast(vsr.sector_ceil(write_header.size));
             assert(stdx.zeroed(
-                write.block.*[write_header.size..vsr.sector_ceil(write_header.size)],
+                write.block.*[write_header.size..write_sector_ceil],
             ));
 
             grid.superblock.storage.write_sectors(
                 write_block_callback,
                 &iop.completion,
-                write.block.*[0..vsr.sector_ceil(write_header.size)],
+                write.block.*[0..write_sector_ceil],
                 .grid,
                 block_offset(write.address),
             );

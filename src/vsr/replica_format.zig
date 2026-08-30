@@ -130,7 +130,11 @@ fn ReplicaFormatType(comptime Storage: type) type {
                     assert(header.operation == .reserved);
                 }
 
-                self.writes[self.writes_pending] = .{
+                // `writes_pending` is `u64` (matching `writes_max`'s width generically); the
+                // `writes` array is always `usize`-indexable in-process, so this narrows exactly,
+                // including on wasm32 where `usize` is 32 bits.
+                const writes_pending: usize = @intCast(self.writes_pending);
+                self.writes[writes_pending] = .{
                     .replica_format = self,
                     .issued_buffer = header_buffer,
                     .issued_offset = prepare_offset,
@@ -138,7 +142,7 @@ fn ReplicaFormatType(comptime Storage: type) type {
 
                 storage.write_sectors(
                     write_sectors_callback,
-                    &self.writes[self.writes_pending].write,
+                    &self.writes[writes_pending].write,
                     header_buffer,
                     .wal_prepares,
                     prepare_offset,
@@ -151,10 +155,13 @@ fn ReplicaFormatType(comptime Storage: type) type {
             // headers zone is contiguous so a single buffer will do.
             //
             // There might be padding, so allocate []u8 instead of []Header.Prepare.
+            // `sector_ceil` returns `u64` (a general disk-size helper); allocation sizes are
+            // always `usize` in-process, so this narrows exactly, including on wasm32 where
+            // `usize` is 32 bits.
             const headers_buffer = try arena.alignedAlloc(
                 u8,
                 constants.sector_size,
-                vsr.sector_ceil(constants.journal_size_headers),
+                @intCast(vsr.sector_ceil(constants.journal_size_headers)),
             );
 
             for (0..constants.journal_slot_count) |slot| {
@@ -180,14 +187,16 @@ fn ReplicaFormatType(comptime Storage: type) type {
             @memset(headers_padding, 0);
             assert(stdx.zeroed(headers_padding));
 
-            self.writes[self.writes_pending] = .{
+            // See the comment in `queue_format_wal` above re: `writes_pending` narrowing.
+            const writes_pending: usize = @intCast(self.writes_pending);
+            self.writes[writes_pending] = .{
                 .replica_format = self,
                 .issued_buffer = headers_buffer,
                 .issued_offset = 0,
             };
             storage.write_sectors(
                 write_sectors_callback,
-                &self.writes[self.writes_pending].write,
+                &self.writes[writes_pending].write,
                 headers_buffer,
                 .wal_headers,
                 0,
@@ -241,10 +250,13 @@ fn ReplicaFormatType(comptime Storage: type) type {
 
             self.writes_pending -= 1;
 
-            const sector_offset = @divExact(
+            // `zone.offset()` returns a general `u64` disk offset; sector indices are always
+            // `usize`-sized in-process (even where `usize` is 32 bits, as on wasm32), so this
+            // narrows exactly for the (small, in-memory) storage sizes this runs against.
+            const sector_offset: usize = @intCast(@divExact(
                 storage_write.zone.offset(write.issued_offset),
                 constants.sector_size,
-            );
+            ));
             const sector_count = @divExact(write.issued_buffer.len, constants.sector_size);
 
             for (sector_offset..sector_offset + sector_count) |sector| {

@@ -44,7 +44,12 @@ pub const Reservation = struct {
 ///      is reclaimed.
 ///
 pub const FreeSet = struct {
-    pub const Word = u64;
+    // The on-disk free-set encoding's word width. Tied to `MaskInt` (== `usize`) rather than
+    // hardcoded to `u64`, matching the `@bitSizeOf(Word) == @bitSizeOf(MaskInt)` invariant this
+    // file already asserts wherever it encodes/decodes (see `decode_chunks` below): identical to
+    // `u64` on every 64-bit native target this runs on (linux/macos/windows), and correctly
+    // `u32`-wide on wasm32 (where `usize` is 32 bits) instead of failing to compile there.
+    pub const Word = MaskInt;
     pub const BitsetKind = enum {
         blocks_acquired,
         blocks_released,
@@ -491,8 +496,10 @@ pub const FreeSet = struct {
     pub fn is_released(set: *const FreeSet, address: u64) bool {
         assert(set.opened);
         const block = address - 1;
+        // Block addresses fit in `usize` for the (small, in-memory) storage sizes this WASM
+        // build works with, even where `usize` is 32 bits.
         return set.blocks_released_prior_checkpoint_durability.contains(block) or
-            set.blocks_released.isSet(block);
+            set.blocks_released.isSet(@intCast(block));
     }
 
     /// Returns `true` if the block at the given address would be freed when the current checkpoint
@@ -504,18 +511,22 @@ pub const FreeSet = struct {
     /// checkpoint interval.
     pub fn to_be_freed_at_checkpoint_durability(set: *const FreeSet, address: u64) bool {
         const block = address - 1;
+        // Block addresses fit in `usize` for the (small, in-memory) storage sizes this WASM
+        // build works with, even where `usize` is 32 bits; `block` itself stays `u64` for the
+        // hashmap calls below, which key on the wider type.
+        const block_usize: usize = @intCast(block);
 
         assert(set.opened);
         assert(!set.checkpoint_durable);
 
         // Block address must be acquired, but is not necessarily released.
-        assert(set.blocks_acquired.isSet(block));
-        assert(!set.blocks_released.isSet(block) or
+        assert(set.blocks_acquired.isSet(block_usize));
+        assert(!set.blocks_released.isSet(block_usize) or
             !set.blocks_released_prior_checkpoint_durability.contains(block));
-        maybe(set.blocks_released.isSet(block));
+        maybe(set.blocks_released.isSet(block_usize));
         maybe(set.blocks_released_prior_checkpoint_durability.contains(block));
 
-        return set.blocks_released.isSet(block);
+        return set.blocks_released.isSet(block_usize);
     }
 
     /// Leave the address acquired for now, but free it when the next checkpoint becomes durable.
@@ -529,8 +540,10 @@ pub const FreeSet = struct {
         assert(set.opened);
 
         const block = address - 1;
-        assert(set.blocks_acquired.isSet(block));
-        assert(!set.blocks_released.isSet(block));
+        // Block addresses fit in `usize` for the (small, in-memory) storage sizes this WASM
+        // build works with, even where `usize` is 32 bits.
+        assert(set.blocks_acquired.isSet(@intCast(block)));
+        assert(!set.blocks_released.isSet(@intCast(block)));
         assert(!set.blocks_released_prior_checkpoint_durability.contains(block));
 
         // `blocks_released` remains unchanged while the current checkpoint is not durable,
@@ -538,7 +551,7 @@ pub const FreeSet = struct {
         // freed till the current checkpoint is durable, so as to maintain the durability of these
         // blocks on a commit quorum of replicas.
         if (set.checkpoint_durable) {
-            set.blocks_released.set(block);
+            set.blocks_released.set(@intCast(block));
         } else {
             set.blocks_released_prior_checkpoint_durability.putAssumeCapacity(block, {});
         }
@@ -564,14 +577,16 @@ pub const FreeSet = struct {
             address_previous = address;
 
             const block = address - 1;
+            // See `to_be_freed_at_checkpoint_durability` re: `block_usize`.
+            const block_usize: usize = @intCast(block);
 
-            assert(!set.blocks_acquired.isSet(block));
-            assert(!set.blocks_released.isSet(block));
+            assert(!set.blocks_acquired.isSet(block_usize));
+            assert(!set.blocks_released.isSet(block_usize));
             assert(!set.blocks_released_prior_checkpoint_durability.contains(block));
 
-            set.blocks_acquired.set(block);
+            set.blocks_acquired.set(block_usize);
 
-            const shard = @divFloor(block, shard_bits);
+            const shard = @divFloor(block_usize, shard_bits);
             // Update the index when every block in the shard is acquired.
             if (set.find_free_block_in_shard(shard) == null) set.index.set(shard);
 
@@ -585,16 +600,18 @@ pub const FreeSet = struct {
         assert(set.checkpoint_durable);
 
         const block = address - 1;
-        assert(set.blocks_acquired.isSet(block));
-        assert(set.blocks_released.isSet(block));
+        // See `to_be_freed_at_checkpoint_durability` re: `block_usize`.
+        const block_usize: usize = @intCast(block);
+        assert(set.blocks_acquired.isSet(block_usize));
+        assert(set.blocks_released.isSet(block_usize));
         assert(!set.blocks_released_prior_checkpoint_durability.contains(block));
 
         assert(set.reservation_count == 0);
         assert(set.reservation_blocks == 0);
 
-        set.index.unset(@divFloor(block, shard_bits));
-        set.blocks_acquired.unset(block);
-        set.blocks_released.unset(block);
+        set.index.unset(@divFloor(block_usize, shard_bits));
+        set.blocks_acquired.unset(block_usize);
+        set.blocks_released.unset(block_usize);
     }
 
     pub fn mark_checkpoint_not_durable(set: *FreeSet) void {
@@ -624,7 +641,8 @@ pub const FreeSet = struct {
         // blocks_released_prior_checkpoint_durability can now be moved to blocks_released.
         while (set.blocks_released_prior_checkpoint_durability.pop()) |block_entry| {
             const block = block_entry.key;
-            set.blocks_released.set(block);
+            // See `to_be_freed_at_checkpoint_durability` re: narrowing.
+            set.blocks_released.set(@intCast(block));
         }
         assert(set.blocks_released_prior_checkpoint_durability.count() == 0);
 

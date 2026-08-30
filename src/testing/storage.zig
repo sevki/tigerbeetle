@@ -24,6 +24,7 @@
 //!   - When replica_count≤2, grid faults are disabled.
 //!
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const math = std.math;
@@ -1231,6 +1232,13 @@ const StackTrace = struct {
 
     fn capture() StackTrace {
         var addresses: [64]usize = undefined;
+        // `std.debug.captureStackTrace` walks native frame pointers, which don't exist the same
+        // way on wasm32 — it reads out-of-bounds linear memory there instead of failing
+        // gracefully. This trace is diagnostic only (rendered in a panic message if two writes
+        // to the same sector conflict), so an empty one is a correctness no-op on wasm32, not a
+        // functional loss.
+        if (builtin.cpu.arch.isWasm()) return StackTrace{ .addresses = addresses, .index = 0 };
+
         var stack_trace = std.builtin.StackTrace{
             .instruction_addresses = &addresses,
             .index = 0,

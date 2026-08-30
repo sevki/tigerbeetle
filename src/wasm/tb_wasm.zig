@@ -22,6 +22,15 @@ const MultiBatchEncoder = @import("../vsr/multi_batch.zig").MultiBatchEncoder;
 const MultiBatchDecoder = @import("../vsr/multi_batch.zig").MultiBatchDecoder;
 const data_file_size_min = @import("../vsr/superblock.zig").data_file_size_min;
 
+// `data_file_size_min` is, by definition, the size of a data file with an *empty* grid — using
+// it directly as `storage_size_limit` (as the original version of this file did) leaves
+// `grid_size_limit() == 0`: no space for the grid to ever write a compacted table into. Past a
+// couple hundred committed events the LSM's mutable table fills up with nowhere to flush to and
+// asserts. `grid_extra_blocks` gives the grid real (if modest) capacity; sized to fit this
+// engine's `heap_buffer` (see below) alongside the manifest log/indices it also draws from.
+const grid_extra_blocks = 4096;
+const storage_size_limit = data_file_size_min + grid_extra_blocks * constants.block_size;
+
 const Operation = StateMachine.Operation;
 
 // `src/config.zig` picks `configs.default_production` (multi-hundred-MB block/cache sizing) for
@@ -77,7 +86,10 @@ const Instance = struct {
 
     op: u64 = 1,
 
+    superblock_context: SuperBlock.Context = undefined,
+    open_done: bool = false,
     prefetch_done: bool = false,
+    compact_done: bool = false,
 
     /// Scratch buffers reused across calls: input gets multi-batch-encoded here, output is
     /// decoded from the state machine's multi-batch reply into a plain, unwrapped array that
@@ -162,16 +174,34 @@ fn init_instance(
         .replica = .{ .cluster = cluster_id, .replica = @intCast(replica_id) },
     }, .{});
 
-    instance.storage = try Storage.init(arena, .{ .size = data_file_size_min });
+    instance.storage = try Storage.init(arena, .{ .size = storage_size_limit });
+
+    // A brand-new in-memory "disk" needs the same one-time format step a real `tigerbeetle
+    // format` CLI invocation performs (writes the WAL + superblock headers) before it can be
+    // opened — skipping straight to a hand-faked `superblock.opened = true` (as an earlier
+    // version of this file did, mirroring `state_machine_tests.zig`'s lighter-weight pattern)
+    // leaves the superblock/grid/manifest log in a state real code elsewhere assumes is
+    // impossible (e.g. `replica_index == null`, `manifest_log.opened == false`), which
+    // `Forest.compact()` — never exercised by that unit-test pattern either — then trips over.
+    try vsr.format(Storage, arena, &instance.storage, .{
+        .cluster = cluster_id,
+        .release = vsr.Release.minimum,
+        .replica = @intCast(replica_id),
+        .replica_count = 1,
+        .view = null,
+    });
 
     instance.superblock = try SuperBlock.init(arena, &instance.storage, .{
-        .storage_size_limit = data_file_size_min,
+        .storage_size_limit = storage_size_limit,
     });
-    // There is no real superblock format/open cycle (no real disk): the WASM instance starts
-    // from a blank in-memory slate every time, matching `state_machine_tests.zig`'s pattern for
-    // driving the Forest directly without full VSR bootstrap.
-    instance.superblock.opened = true;
-    instance.superblock.working.vsr_state.checkpoint.header.op = 0;
+    instance.open_done = false;
+    instance.superblock.open(struct {
+        fn callback(context: *SuperBlock.Context) void {
+            const self: *Instance = @alignCast(@fieldParentPtr("superblock_context", context));
+            self.open_done = true;
+        }
+    }.callback, &instance.superblock_context);
+    while (!instance.open_done) instance.storage.run();
 
     instance.grid = try Grid.init(arena, .{
         .superblock = &instance.superblock,
@@ -179,8 +209,27 @@ fn init_instance(
         .stash_blocks_count = 1024,
         .missing_blocks_max = 0,
         .missing_tables_max = 0,
-        .blocks_released_prior_checkpoint_durability_max = 0,
+        // A real replica sizes this to fit one checkpoint interval's worth of blocks released by
+        // compaction (`Replica.open_init`), because it calls `superblock.checkpoint()`
+        // periodically to durably mark them and reclaim this space. This engine never calls
+        // checkpoint() (no real disk persistence to checkpoint *to* — see the module doc comment
+        // on persistence), so released blocks accumulate here indefinitely rather than being
+        // bounded per-interval; `0` (this engine's original value) starves it almost
+        // immediately once compaction actually releases anything. Using the real per-pipeline
+        // sizing formula is still meaningfully better — it holds many checkpoint intervals'
+        // worth before exhausting — even though, without checkpointing, *some* finite capacity
+        // will eventually be hit on a long-lived enough instance.
+        .blocks_released_prior_checkpoint_durability_max = StateMachine.Forest
+            .compaction_blocks_released_per_pipeline_max(),
     });
+    instance.open_done = false;
+    instance.grid.open(struct {
+        fn callback(grid: *Grid) void {
+            const self: *Instance = @alignCast(@fieldParentPtr("grid", grid));
+            self.open_done = true;
+        }
+    }.callback);
+    while (!instance.open_done) instance.storage.run();
 
     try instance.state_machine.init(
         arena,
@@ -190,7 +239,19 @@ fn init_instance(
             .batch_size_limit = constants.message_body_size_max,
             .lsm_forest_compaction_block_count = StateMachine.Forest.Options
                 .compaction_block_count_min,
-            .lsm_forest_node_count = 1,
+            // Each manifest node costs `constants.lsm_manifest_node_size` (16KiB) out of
+            // `heap_buffer` below; `1` (this engine's original value, copied from
+            // `state_machine_tests.zig`, where a handful of short-lived unit-test events never
+            // exhaust it) starves a real, long-lived ledger's manifest log almost immediately
+            // (`error(vsr): out of memory for manifest`) once compaction is actually driven.
+            // `lsm_forest_node_count` below is a real, finite capacity bound, not a bug: past it,
+            // this engine legitimately needs a bigger `heap_buffer` (or real checkpointing to
+            // reclaim manifest space, which this engine doesn't implement — see the module doc
+            // comment on persistence). `512` (8MiB) was chosen to comfortably outlast realistic
+            // demo/testing workloads within the current 64MiB `heap_buffer`; VOPR (the closest
+            // sustained-workload precedent in this codebase) uses `4096` (64MiB) — this engine
+            // can't afford that alongside everything else `heap_buffer` also holds.
+            .lsm_forest_node_count = 512,
             .cache_entries_accounts = 0,
             .cache_entries_transfers = 0,
             .cache_entries_transfers_pending = 0,
@@ -200,6 +261,14 @@ fn init_instance(
     );
     instance.state_machine.expire_pending_transfers.pulse_next_timestamp =
         @import("../lsm/timestamp_range.zig").TimestampRange.timestamp_max;
+    instance.open_done = false;
+    instance.state_machine.open(struct {
+        fn callback(state_machine: *StateMachine) void {
+            const self: *Instance = @fieldParentPtr("state_machine", state_machine);
+            self.open_done = true;
+        }
+    }.callback);
+    while (!instance.open_done) instance.storage.run();
 
     instance.op = 1;
     instance.output_flat_len = 0;
@@ -304,6 +373,25 @@ export fn tb_wasm_submit(handle: i32, operation_raw: u8, len: u32) i32 {
         message_body,
         &output_buffer,
     );
+
+    // Matches `Replica.commit_compact()`: called with the just-committed op, every op, no
+    // exceptions. `Forest.compact()` decides internally (from `op % constants.lsm_compaction_ops`)
+    // whether this call actually does work or is a no-op for this particular op — skipping calls
+    // desyncs that beat counter and is not a valid way to "call it less often". Without this, the
+    // LSM's mutable table fills after a couple hundred committed events with nowhere to flush to
+    // and asserts (`TableMemory.put`) the next time an op tries to insert into a full table.
+    instance.compact_done = false;
+    instance.state_machine.compact(
+        struct {
+            fn callback(state_machine: *StateMachine) void {
+                const self: *Instance = @fieldParentPtr("state_machine", state_machine);
+                self.compact_done = true;
+            }
+        }.callback,
+        instance.op,
+    );
+    while (!instance.compact_done) instance.storage.run();
+
     instance.op += 1;
 
     const reply: []align(constants.cache_line_size) const u8 = output_buffer[0..size];
