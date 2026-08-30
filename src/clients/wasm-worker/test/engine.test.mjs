@@ -42,4 +42,23 @@ describe("tb_wasm.wasm engine", () => {
     expect(created).toBe(BigInt(TARGET));
     engine.deinit();
   }, 120000);
+
+  it("rejects an oversized batch before writing into wasm memory, and stays usable after", async () => {
+    const bytes = await readFile(wasmPath);
+    const engine = await TigerBeetleWasm.instantiate(bytes);
+
+    // 128 bytes/account; comfortably more accounts than fit tb_wasm_input_capacity().
+    const tooMany = Array.from({ length: 100000 }, (_, i) => ({
+      id: BigInt(i + 1),
+      ledger: 1,
+      code: 10,
+    }));
+    expect(() => engine.createAccounts(tooMany)).toThrow(RangeError);
+
+    // A clean rejection (not a wasm memory corruption/trap) means the engine is still usable.
+    const results = engine.createAccounts([{ id: 1n, ledger: 1, code: 10 }]);
+    expect(results[0].status).toBe(0xffffffff);
+
+    engine.deinit();
+  });
 });

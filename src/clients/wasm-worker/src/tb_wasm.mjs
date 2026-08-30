@@ -67,7 +67,21 @@ export class TigerBeetleWasm {
     return new DataView(this.#exports.memory.buffer);
   }
 
+  // Fails clearly (`RangeError`) instead of writing past `tb_wasm_input_ptr`'s buffer into
+  // whatever else lives next to it in linear memory — `tb_wasm_submit`'s own `batch_too_large`
+  // check happens Zig-side, too late: by then the encode loop below has already written the
+  // full batch through a `DataView` spanning *all* of linear memory, not just that buffer.
+  #checkInputCapacity(byteLength) {
+    const capacity = this.#exports.tb_wasm_input_capacity(this.#handle);
+    if (byteLength > capacity) {
+      throw new RangeError(
+        `batch too large: ${byteLength} bytes exceeds tb_wasm_input_capacity (${capacity})`,
+      );
+    }
+  }
+
   #submitEncoded(operation, encodeCount, elementSize, encodeOne) {
+    this.#checkInputCapacity(encodeCount * elementSize);
     const inputPtr = this.#exports.tb_wasm_input_ptr(this.#handle);
     const view = this.#memoryView();
     for (let i = 0; i < encodeCount; i++) encodeOne(view, inputPtr + i * elementSize, i);
@@ -111,6 +125,7 @@ export class TigerBeetleWasm {
   }
 
   lookupAccounts(ids) {
+    this.#checkInputCapacity(ids.length * 16);
     const op = this.#exports.tb_wasm_op_lookup_accounts();
     const inputPtr = this.#exports.tb_wasm_input_ptr(this.#handle);
     encodeU128Array(this.#memoryView(), inputPtr, ids);
@@ -130,6 +145,7 @@ export class TigerBeetleWasm {
   }
 
   lookupTransfers(ids) {
+    this.#checkInputCapacity(ids.length * 16);
     const op = this.#exports.tb_wasm_op_lookup_transfers();
     const inputPtr = this.#exports.tb_wasm_input_ptr(this.#handle);
     encodeU128Array(this.#memoryView(), inputPtr, ids);

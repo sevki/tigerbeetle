@@ -31,6 +31,16 @@ export class TigerBeetleLedger {
     }
   }
 
+  // Note the narrow race this doesn't close: `engine.createAccounts`/`createTransfers` already
+  // mutated the live wasm engine by the time this runs (dense per-item results, decided by
+  // `input_valid()` before any mutation — so *this* far in, the batch as a whole always
+  // "succeeds" here in the sense of returning results, some possibly rejected). If the
+  // `ctx.storage.put()` below then fails (a storage quota/transient failure), that mutation is
+  // real but unlogged: the client sees a 500 (below, not silently folded into the generic 400
+  // path), but the live instance now holds state that replay-on-restore won't reproduce, until
+  // this DO instance is evicted. Actually closing that race needs either a rollback path in the
+  // wasm engine (it has none) or a real write-ahead log ahead of the engine mutation instead of
+  // after it — both bigger changes than this fix; flagged here rather than silently accepted.
   async #appendLog(operation, events) {
     const seq = this.nextSeq++;
     await this.ctx.storage.put(logKey(seq), { operation, events });
@@ -45,7 +55,7 @@ export class TigerBeetleLedger {
         const accounts = await request.json();
         const encoded = accounts.map(normalizeAccount);
         const results = this.engine.createAccounts(encoded);
-        await this.#appendLog(this.engine.opCreateAccounts, encoded);
+        await this.#appendLogOrFail(this.engine.opCreateAccounts, encoded);
         return json(results.map(serializeResult));
       }
 
@@ -53,7 +63,7 @@ export class TigerBeetleLedger {
         const transfers = await request.json();
         const encoded = transfers.map(normalizeTransfer);
         const results = this.engine.createTransfers(encoded);
-        await this.#appendLog(this.engine.opCreateTransfers, encoded);
+        await this.#appendLogOrFail(this.engine.opCreateTransfers, encoded);
         return json(results.map(serializeResult));
       }
 
@@ -71,7 +81,23 @@ export class TigerBeetleLedger {
 
       return new Response("not found", { status: 404 });
     } catch (err) {
+      if (err instanceof AppendLogError) {
+        return json({ error: err.message }, 500);
+      }
       return json({ error: String(err?.message ?? err) }, 400);
+    }
+  }
+
+  // Distinguishes "the durable log write itself failed" (500 — the request's effect on the live
+  // engine is real but wasn't captured durably, see the comment on #appendLog) from an ordinary
+  // input-validation failure (400).
+  async #appendLogOrFail(operation, events) {
+    try {
+      await this.#appendLog(operation, events);
+    } catch (err) {
+      throw new AppendLogError(
+        `committed but failed to durably log the operation: ${err?.message ?? err}`,
+      );
     }
   }
 }
@@ -89,6 +115,8 @@ export default {
     return stub.fetch(new Request(forwardUrl, request));
   },
 };
+
+class AppendLogError extends Error {}
 
 function replayOne(engine, entry) {
   if (entry.operation === engine.opCreateAccounts) {
