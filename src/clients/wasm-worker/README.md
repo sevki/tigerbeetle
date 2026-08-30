@@ -50,13 +50,28 @@ curl -fsSL https://celld.dev/install.sh | sh
 must be on `PATH` — `npm install` below pulls it in as a local devDependency, and `npm`/`npx`
 scripts put `node_modules/.bin` on `PATH` automatically.
 
+## API schema
+
+`openapi.yaml` describes the HTTP API (`/ledger/{ledgerId}/{accounts,transfers,lookup_accounts,
+lookup_transfers}`) that `src/index.mjs` serves — request/response shapes for `Account`/
+`Transfer`/`CreateResult`, matching `src/tigerbeetle.zig`'s wire types (u128/u64 values as
+decimal strings, since JSON numbers can't hold them). `npm run generate:client` runs
+[openapi-typescript](https://openapi-ts.dev) to turn it into `src/openapi.d.ts` (generated,
+gitignored, regenerated automatically before `test:celld` — see `pretest:celld`).
+
+`test/openapi.celld.test.mjs` drives the same real `celld dev` process as the other celld tests,
+but through an [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) client typed against that
+generated schema, and additionally validates every raw JSON response against `openapi.yaml`'s
+schemas with [ajv](https://ajv.js.org) — catching the spec and the server actually disagreeing at
+runtime, not just a compile-time type mismatch.
+
 ## Test
 
 ```console
 npm install
-npm test           # both suites: real celld, then real workerd
-npm run test:celld    # just test/ledger.celld.test.mjs, against a spawned `celld dev` process
-npm run test:workerd  # just test/ledger.workerd.test.mjs, inside workerd via vitest-pool-workers
+npm test           # everything: celld (ledger + openapi-client suites), then workerd
+npm run test:celld    # test/*.celld.test.mjs, against a spawned `celld dev` process
+npm run test:workerd  # test/ledger.workerd.test.mjs, inside workerd via vitest-pool-workers
 node test/smoke.node.mjs ../../../zig-out/wasm/tb_wasm.wasm   # quick sanity check outside either runtime
 ```
 

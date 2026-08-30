@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "generate:client": "openapi-typescript openapi.yaml -o src/openapi.d.ts",
+    "pretest:celld": "npm run generate:client",
     "test": "npm run test:celld && npm run test:workerd",
     "test:celld": "vitest run --config vitest.config.mts",
     "test:workerd": "vitest run --config vitest.workerd.config.mts",
@@ -11,8 +13,12 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "ajv": "^8.20.0",
     "esbuild": "^0.28.2",
+    "openapi-fetch": "^0.17.0",
+    "openapi-typescript": "^7.13.0",
     "vitest": "~4.1.11",
-    "wrangler": "^4.127.1"
+    "wrangler": "^4.127.1",
+    "yaml": "^2.9.0"
   }
 }

@@ -1452,12 +1452,13 @@ test "tidy unix permissions" {
 // Sanity check for "unexpected" files in the repository.
 test "tidy extensions" {
     const allowed_extensions = std.StaticStringMap(void).initComptime(.{
-        .{".c"},     .{".cs"},  .{".csproj"}, .{".css"},     .{".go"},
-        .{".h"},     .{".hcl"}, .{".html"},   .{".java"},    .{".js"},
-        .{".json"},  .{".md"},  .{".mjs"},    .{".mod"},     .{".mts"},
-        .{".props"}, .{".py"},  .{".rs"},     .{".service"}, .{".sln"},
-        .{".sum"},   .{".svg"}, .{".toml"},   .{".ts"},      .{".txt"},
-        .{".xml"},   .{".yml"}, .{".zig"},    .{".zon"},     .{".rb"},
+        .{".c"},     .{".cs"},   .{".csproj"}, .{".css"},     .{".go"},
+        .{".h"},     .{".hcl"},  .{".html"},   .{".java"},    .{".js"},
+        .{".json"},  .{".md"},   .{".mjs"},    .{".mod"},     .{".mts"},
+        .{".props"}, .{".py"},   .{".rs"},     .{".service"}, .{".sln"},
+        .{".sum"},   .{".svg"},  .{".toml"},   .{".ts"},      .{".txt"},
+        .{".xml"},   .{".yaml"}, .{".yml"},    .{".zig"},     .{".zon"},
+        .{".rb"},
     });
 
     const exceptions = std.StaticStringMap(void).initComptime(.{
