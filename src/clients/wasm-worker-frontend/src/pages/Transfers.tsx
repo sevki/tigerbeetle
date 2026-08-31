@@ -1,7 +1,5 @@
-"use client";
-
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { RefreshCw, Search, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +28,7 @@ import { useLocalHistory } from "@/lib/local-history";
 import { randomId } from "@/lib/id";
 import { STATUS_OK, type Transfer, LedgerApiError } from "@/lib/ledger-api";
 
-export default function TransfersPage() {
+export function TransfersPage() {
   const client = useLedgerClient();
   const { ledgerId } = useLedgerSettings();
   const history = useLocalHistory("transfers", ledgerId);
@@ -40,20 +38,14 @@ export default function TransfersPage() {
   const [loading, setLoading] = React.useState(false);
   const [searchId, setSearchId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
-  // Starts empty rather than `randomId()` -- see the identical comment in accounts/page.tsx.
   const [form, setForm] = React.useState({
-    id: "",
+    id: randomId(),
     debit_account_id: "",
     credit_account_id: "",
     amount: "100",
     ledger: "1",
     code: "10",
   });
-
-  React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only id generation, see accounts/page.tsx
-    setForm((f) => ({ ...f, id: randomId() }));
-  }, []);
 
   const refresh = React.useCallback(
     async (ids: string[]) => {
@@ -76,7 +68,6 @@ export default function TransfersPage() {
   );
 
   React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- refetches on ledger/history change
     refresh(history.ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, history.ids.join(",")]);
@@ -165,7 +156,7 @@ export default function TransfersPage() {
                 <>
                   {" "}
                   You&apos;ll need at least two{" "}
-                  <Link href="/accounts" className="underline underline-offset-2">
+                  <Link to="/accounts" className="underline underline-offset-2">
                     accounts
                   </Link>{" "}
                   first.

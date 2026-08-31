@@ -11,6 +11,13 @@ if ! command -v celld >/dev/null 2>&1; then
 fi
 
 npm ci
+
+# `npm run build` also builds the DT Bank frontend (../wasm-worker-frontend) and copies it into
+# ./public -- wrangler.toml/.jsonc's [assets] directory must exist before celld/wrangler will
+# even *start* (not just when actually serving a static asset), so this has to run before every
+# celld/wrangler-driven step below, not just before the eventual `wrangler deploy`.
+npm run build
+
 node test/smoke.node.mjs ../../../zig-out/wasm/tb_wasm.wasm
 npm test
 
@@ -18,12 +25,11 @@ npm test
 # import, a binding mismatch -- without needing Cloudflare credentials or actually deploying.
 npx wrangler deploy --dry-run
 
-# --- Frontend (DT Bank UI): browser end-to-end tests against a real celld instance of the
-# Worker above -- see wasm-worker-frontend/README.md for why it's a sibling directory, not
-# nested inside wasm-worker.
+# --- Frontend (DT Bank UI): browser end-to-end tests against a real celld instance serving both
+# the built SPA and the API from the same origin -- see wasm-worker-frontend/README.md for why
+# it's a sibling directory, not nested inside wasm-worker.
 cd ../wasm-worker-frontend
 corepack enable
 pnpm install --frozen-lockfile
-pnpm build
 npx playwright install --with-deps chromium
 pnpm test:e2e

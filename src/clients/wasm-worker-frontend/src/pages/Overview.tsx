@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { ArrowRight, Landmark, ArrowLeftRight, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,8 +13,8 @@ import { DtBankLogo } from "@/components/brand/dt-bank-logo";
 import { useLedgerSettings } from "@/lib/ledger-settings";
 import { useLocalHistory } from "@/lib/local-history";
 
-export default function OverviewPage() {
-  const { baseUrl, ledgerId } = useLedgerSettings();
+export function OverviewPage() {
+  const { ledgerId } = useLedgerSettings();
   const accounts = useLocalHistory("accounts", ledgerId);
   const transfers = useLocalHistory("transfers", ledgerId);
 
@@ -30,17 +28,17 @@ export default function OverviewPage() {
         <p className="max-w-xl text-muted-foreground">
           This ledger (<code className="font-mono">{ledgerId}</code>) is
           served by the real TigerBeetle state machine and LSM storage
-          engine, compiled to WebAssembly and driven from{" "}
-          <code className="font-mono">{baseUrl}</code>.
+          engine, compiled to WebAssembly. This page is served by the same
+          Worker as the API it calls.
         </p>
         <div className="flex gap-3">
           <Button asChild>
-            <Link href="/accounts">
+            <Link to="/accounts">
               Open accounts <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
           <Button asChild variant="outline">
-            <Link href="/transfers">Open transfers</Link>
+            <Link to="/transfers">Open transfers</Link>
           </Button>
         </div>
       </section>
@@ -94,9 +92,8 @@ export default function OverviewPage() {
               the list — the ledger itself is unaffected either way.
             </p>
             <p>
-              Use the connection settings in the header (top right) to point
-              this UI at a different Worker base URL or a different ledger
-              ID within it.
+              Use the ledger ID field in the header (top right) to switch
+              which ledger within this Worker you&apos;re viewing.
             </p>
           </CardContent>
         </Card>

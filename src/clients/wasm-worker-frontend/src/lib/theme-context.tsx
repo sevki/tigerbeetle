@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 
 type Theme = "light" | "dark" | "system";
@@ -33,7 +31,6 @@ export function ThemeProvider({
   const themeCallbacksRef = React.useRef<Set<(resolvedTheme: "light" | "dark") => void>>(new Set());
 
   React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe localStorage read, client-only
     setMounted(true);
     const savedTheme = localStorage.getItem(storageKey) as Theme;
     if (savedTheme) {

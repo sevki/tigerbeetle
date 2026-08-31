@@ -1,7 +1,4 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 import { Settings2 } from "lucide-react";
 import { DtBankLogo } from "@/components/brand/dt-bank-logo";
 import { Button } from "@/components/ui/button";
@@ -23,21 +20,21 @@ const NAV_LINKS = [
 ];
 
 export function SiteHeader() {
-  const pathname = usePathname();
-  const { baseUrl, ledgerId, setBaseUrl, setLedgerId } = useLedgerSettings();
+  const { pathname } = useLocation();
+  const { ledgerId, setLedgerId } = useLedgerSettings();
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
         <div className="flex items-center gap-8">
-          <Link href="/" aria-label="DT Bank home">
+          <Link to="/" aria-label="DT Bank home">
             <DtBankLogo />
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
-                href={link.href}
+                to={link.href}
                 className={cn(
                   "rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
                   pathname === link.href && "bg-accent text-accent-foreground",
@@ -59,21 +56,11 @@ export function SiteHeader() {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 space-y-4">
               <div className="space-y-1">
-                <h4 className="text-sm font-semibold">Ledger connection</h4>
+                <h4 className="text-sm font-semibold">Ledger</h4>
                 <p className="text-xs text-muted-foreground">
-                  Points this UI at a running TigerBeetle Worker (celld dev,
-                  wrangler dev, or a deployed Worker) and a ledger ID within
-                  it.
+                  The ledger ID within this Worker to view. The API itself is
+                  always this same origin.
                 </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="base-url">Worker base URL</Label>
-                <Input
-                  id="base-url"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="http://localhost:9876"
-                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ledger-id">Ledger ID</Label>
@@ -93,7 +80,7 @@ export function SiteHeader() {
         {NAV_LINKS.map((link) => (
           <Link
             key={link.href}
-            href={link.href}
+            to={link.href}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground",
               pathname === link.href && "bg-accent text-accent-foreground",

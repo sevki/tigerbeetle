@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 
 // Drives the real UI against a real `celld dev` instance of the wasm-worker Worker (see
-// global-setup.ts) — not a mocked API — so this exercises the full stack: browser -> Next.js ->
-// fetch -> celld -> the TigerBeetle wasm engine.
+// global-setup.ts) — same origin serving both the built SPA and the /ledger/* API, exactly as
+// production does — not a mocked API.
 
 test("creates an account and shows it in the known-accounts table", async ({ page }) => {
   await page.goto("/accounts");
@@ -32,4 +32,13 @@ test("looks up an account by ID that wasn't created in this session", async ({ p
   // should still resolve, proving lookup (not just the create response) round-trips correctly.
   await page.reload();
   await expect(page.locator("tbody tr", { hasText: id })).toBeVisible();
+});
+
+test("a direct load of a client-side route serves the app, not a 404", async ({ page }) => {
+  // The real point of this test: /accounts is not a static file -- only the SPA's client-side
+  // router resolves it. A fresh navigation (not a client-side Link click) exercises the Worker's
+  // static-asset + SPA-fallback routing in src/index.mjs.
+  const response = await page.goto("/accounts");
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
 });
