@@ -1471,7 +1471,6 @@ test "tidy extensions" {
         .{"CNAME"},
         .{"exclude-pmd.properties"},
         .{"favicon.png"},
-        .{"favicon.ico"},
         .{"notfound-light.webp"},
         .{"notfound-dark.webp"},
         .{"preview.webp"},

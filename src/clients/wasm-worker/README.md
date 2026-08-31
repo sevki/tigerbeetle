@@ -69,6 +69,9 @@ runtime, not just a compile-time type mismatch.
 
 ```console
 npm install
+npm run build       # builds tb_wasm.wasm *and* the DT Bank UI into ./public -- see below;
+                     # required before any of the celld/wrangler-backed commands below will
+                     # even start
 npm test           # everything: celld (ledger + openapi-client suites), then workerd
 npm run test:celld    # test/*.celld.test.mjs, against a spawned `celld dev` process
 npm run test:workerd  # test/ledger.workerd.test.mjs, inside workerd via vitest-pool-workers
@@ -82,6 +85,26 @@ npm run dev            # celld dev .
 npm run dev:workerd    # wrangler dev
 curl -X POST localhost:9876/ledger/my-ledger/accounts -d '[{"id":"1","ledger":1,"code":10}]'
 ```
+
+## The DT Bank UI
+
+[`../wasm-worker-frontend`](../wasm-worker-frontend) is a Vite + React SPA served as **static
+assets by this same Worker** — one deployment, one origin, no CORS. `wrangler.toml`/`.jsonc`'s
+`[assets]` binding points at `./public`, which isn't checked in — `npm run build` builds the
+frontend and copies its `dist/` there (see that script and the frontend's own README for why the
+copy, rather than pointing `[assets].directory` straight at `../wasm-worker-frontend/dist`:
+celld requires the assets directory to live inside the project).
+
+`[assets].run_worker_first = true` routes every request through `src/index.mjs` first, which
+implements the actual split itself: `/ledger/*` hits the Durable Object, everything else serves
+a matching static file or falls back to `index.html` for a client-side route (`/accounts`,
+`/transfers`, ...) — see the comment there for why this is done explicitly rather than via
+Cloudflare's `not_found_handling` option (celld doesn't implement it the same way wrangler/real
+Cloudflare do).
+
+Because `[assets].directory` must exist just for celld/wrangler to **start** — not only to serve
+a request — `npm run build` (and therefore a populated `./public`) is a prerequisite for
+`npm test`/`npm run dev`/`npm run dev:workerd` too, not just for deploying.
 
 ## Deploy via Cloudflare Workers Builds
 

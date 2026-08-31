@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 
 // The Worker's API has no "list all accounts/transfers" endpoint (see API.md) — only
@@ -13,7 +11,6 @@ function key(kind: "accounts" | "transfers", ledgerId: string) {
 }
 
 function readIds(storageKey: string): string[] {
-  if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(storageKey);
     return raw ? (JSON.parse(raw) as string[]) : [];
@@ -27,10 +24,9 @@ export function useLocalHistory(
   ledgerId: string,
 ) {
   const storageKey = key(kind, ledgerId);
-  const [ids, setIds] = React.useState<string[]>([]);
+  const [ids, setIds] = React.useState<string[]>(() => readIds(storageKey));
 
   React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration-safe localStorage read, client-only
     setIds(readIds(storageKey));
   }, [storageKey]);
 

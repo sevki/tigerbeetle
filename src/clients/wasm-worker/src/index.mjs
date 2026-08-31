@@ -102,40 +102,37 @@ export class TigerBeetleLedger {
   }
 }
 
-// This API is served to a separately-hosted frontend (src/clients/wasm-worker/frontend), so
-// every response needs CORS headers. No cookies/credentials are involved, so a wildcard origin
-// is fine — this ledger has no auth to leak.
-const CORS_HEADERS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
-};
-
+// The DT Bank UI (../wasm-worker-frontend) is served as static assets from this same
+// Worker/origin (see wrangler.toml's [assets], `run_worker_first: true` routes every request
+// through here first) — same-origin means no CORS headers are needed either.
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
     const url = new URL(request.url);
     const match = url.pathname.match(/^\/ledger\/([^/]+)(\/.*)?$/);
-    if (!match) {
-      return withCors(new Response("expected /ledger/<id>/...", { status: 404 }));
+    if (match) {
+      const [, ledgerId, rest] = match;
+      const id = env.LEDGER.idFromName(ledgerId);
+      const stub = env.LEDGER.get(id);
+      const forwardUrl = new URL(rest || "/", url);
+      return stub.fetch(new Request(forwardUrl, request));
     }
 
-    const [, ledgerId, rest] = match;
-    const id = env.LEDGER.idFromName(ledgerId);
-    const stub = env.LEDGER.get(id);
-    const forwardUrl = new URL(rest || "/", url);
-    return withCors(await stub.fetch(new Request(forwardUrl, request)));
+    // Not an API route: serve the built SPA. A real static file (js/css/fonts/favicon/...)
+    // always has an extension in its last path segment; a client-side route (/, /accounts,
+    // /transfers, ...) never does -- so that split decides exact-asset-match vs. index.html
+    // fallback, rather than reacting to a 404 status from `env.ASSETS.fetch()`, whose "not
+    // found" behavior (404 vs. a redirect) isn't consistent between celld and wrangler/real
+    // Cloudflare (`not_found_handling: "single-page-application"` isn't either, for the same
+    // reason).
+    if (/\.[a-zA-Z0-9]+$/.test(url.pathname)) {
+      return env.ASSETS.fetch(request);
+    }
+    // Request "/" itself, not "/index.html" -- the latter is a real filename, and clean-URL
+    // asset serving (celld and real Cloudflare both do this) redirects it to "/" rather than
+    // serving it directly, which would turn this into a redirect loop for every client route.
+    return env.ASSETS.fetch(new Request(new URL("/", url), request));
   },
 };
-
-function withCors(response) {
-  const headers = new Headers(response.headers);
-  for (const [key, value] of Object.entries(CORS_HEADERS)) headers.set(key, value);
-  return new Response(response.body, { status: response.status, headers });
-}
 
 class AppendLogError extends Error {}
 

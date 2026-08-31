@@ -1,7 +1,5 @@
-"use client";
-
 import * as React from "react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { RefreshCw, Search, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,7 +28,7 @@ import { useLocalHistory } from "@/lib/local-history";
 import { randomId } from "@/lib/id";
 import { STATUS_OK, type Account, LedgerApiError } from "@/lib/ledger-api";
 
-export default function AccountsPage() {
+export function AccountsPage() {
   const client = useLedgerClient();
   const { ledgerId } = useLedgerSettings();
   const history = useLocalHistory("accounts", ledgerId);
@@ -39,21 +37,11 @@ export default function AccountsPage() {
   const [loading, setLoading] = React.useState(false);
   const [searchId, setSearchId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
-  // Starts empty rather than `randomId()` -- that's non-deterministic (Date.now()/Math.random()),
-  // so calling it directly in useState's initializer would produce a different id on the server
-  // render than on client hydration (a real hydration mismatch, not just a test artifact: the id
-  // briefly visible in the DOM would differ from the one actually submitted). Filled in once,
-  // client-only, below.
   const [form, setForm] = React.useState({
-    id: "",
+    id: randomId(),
     ledger: "1",
     code: "10",
   });
-
-  React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only id generation, see above
-    setForm((f) => ({ ...f, id: randomId() }));
-  }, []);
 
   const refresh = React.useCallback(
     async (ids: string[]) => {
@@ -77,7 +65,6 @@ export default function AccountsPage() {
   );
 
   React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- refetches on ledger/history change
     refresh(history.ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, history.ids.join(",")]);
@@ -238,7 +225,7 @@ export default function AccountsPage() {
             <CardTitle>Known accounts</CardTitle>
             <CardDescription>
               Accounts created or looked up from this browser (see{" "}
-              <Link href="/" className="underline underline-offset-2">
+              <Link to="/" className="underline underline-offset-2">
                 Overview
               </Link>{" "}
               for why this isn&apos;t a full ledger listing).

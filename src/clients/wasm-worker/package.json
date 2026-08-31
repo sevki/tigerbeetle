@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "cd ../../.. && ./zig/download.sh && ./zig/zig build wasm",
+    "build": "cd ../../.. && ./zig/download.sh && ./zig/zig build wasm && cd src/clients/wasm-worker-frontend && corepack enable && pnpm install --frozen-lockfile && pnpm run build && cd ../wasm-worker && rm -rf public && cp -r ../wasm-worker-frontend/dist public",
     "generate:client": "openapi-typescript openapi.yaml -o src/openapi.d.ts",
     "pretest:celld": "npm run generate:client",
     "test": "npm run test:celld && npm run test:workerd",

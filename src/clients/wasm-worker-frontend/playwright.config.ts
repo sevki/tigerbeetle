@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 const PINNED_CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 const executablePath = existsSync(PINNED_CHROMIUM) ? PINNED_CHROMIUM : undefined;
 
-const CELLD_PORT = 19960;
+export const CELLD_PORT = 19962;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -20,18 +20,12 @@ export default defineConfig({
   reporter: process.env.CI ? "dot" : "list",
   globalSetup: "./e2e/global-setup.ts",
   use: {
-    baseURL: "http://localhost:3210",
+    // No separate frontend dev server: the built SPA (`pnpm build`, copied into
+    // ../wasm-worker/public — see pretest:e2e) is served by the same celld dev process as the
+    // API, exactly as it is in production. global-setup.ts starts that process.
+    baseURL: `http://localhost:${CELLD_PORT}`,
     trace: "retain-on-failure",
     launchOptions: { executablePath },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npx next dev --port 3210",
-    url: "http://localhost:3210",
-    reuseExistingServer: !process.env.CI,
-    env: { NEXT_PUBLIC_LEDGER_API_BASE: `http://localhost:${CELLD_PORT}` },
-    timeout: 60_000,
-  },
 });
-
-export { CELLD_PORT };

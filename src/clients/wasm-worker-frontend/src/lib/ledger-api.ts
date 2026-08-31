@@ -1,8 +1,8 @@
-// Thin client for the TigerBeetle WASM Worker's HTTP API, built on the same
-// openapi-fetch + openapi-typescript pairing wasm-worker's own tests use (see
-// test/openapi.celld.test.mjs there) — `src/openapi.d.ts` here is generated from
-// ../wasm-worker/openapi.yaml (the canonical spec) by `pnpm generate:client`, so the request/
-// response shapes below are never hand-duplicated from it.
+// Thin client for the TigerBeetle WASM Worker's HTTP API, built on openapi-fetch +
+// openapi-typescript -- `src/openapi.d.ts` here is generated from ../wasm-worker/openapi.yaml
+// (the canonical spec) by `pnpm generate:client`, so the request/response shapes below are
+// never hand-duplicated from it. This is the same generator/client pairing wasm-worker's own
+// tests use (see test/openapi.celld.test.mjs there).
 import createClient from "openapi-fetch";
 import type { paths, components } from "@/openapi";
 
@@ -16,23 +16,22 @@ export type Transfer = components["schemas"]["Transfer"];
 export const STATUS_OK = 4294967295;
 
 export class LedgerApiError extends Error {
-  constructor(
-    message: string,
-    public readonly httpStatus: number,
-  ) {
+  readonly httpStatus: number;
+
+  constructor(message: string, httpStatus: number) {
     super(message);
     this.name = "LedgerApiError";
+    this.httpStatus = httpStatus;
   }
 }
 
 export class LedgerClient {
   private readonly client: ReturnType<typeof createClient<paths>>;
+  private readonly ledgerId: string;
 
-  constructor(
-    baseUrl: string,
-    private readonly ledgerId: string,
-  ) {
+  constructor(baseUrl: string, ledgerId: string) {
     this.client = createClient<paths>({ baseUrl });
+    this.ledgerId = ledgerId;
   }
 
   async createAccounts(accounts: AccountInput[]): Promise<OperationResult[]> {
