@@ -102,19 +102,40 @@ export class TigerBeetleLedger {
   }
 }
 
+// This API is served to a separately-hosted frontend (src/clients/wasm-worker/frontend), so
+// every response needs CORS headers. No cookies/credentials are involved, so a wildcard origin
+// is fine — this ledger has no auth to leak.
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
+
 export default {
   async fetch(request, env) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
     const url = new URL(request.url);
     const match = url.pathname.match(/^\/ledger\/([^/]+)(\/.*)?$/);
-    if (!match) return new Response("expected /ledger/<id>/...", { status: 404 });
+    if (!match) {
+      return withCors(new Response("expected /ledger/<id>/...", { status: 404 }));
+    }
 
     const [, ledgerId, rest] = match;
     const id = env.LEDGER.idFromName(ledgerId);
     const stub = env.LEDGER.get(id);
     const forwardUrl = new URL(rest || "/", url);
-    return stub.fetch(new Request(forwardUrl, request));
+    return withCors(await stub.fetch(new Request(forwardUrl, request)));
   },
 };
+
+function withCors(response) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(CORS_HEADERS)) headers.set(key, value);
+  return new Response(response.body, { status: response.status, headers });
+}
 
 class AppendLogError extends Error {}
 

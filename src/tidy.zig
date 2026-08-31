@@ -1328,6 +1328,9 @@ test "tidy no large blobs" {
         if (std.mem.eql(u8, path, "src/vsr/replica.zig")) continue; // :-)
         if (std.mem.eql(u8, path, "src/state_machine.zig")) continue; // :-|
         if (std.mem.eql(u8, path, "src/docs_website/package-lock.json")) continue; // :-(
+        if (std.mem.eql(u8, path, "src/clients/wasm-worker-frontend/pnpm-lock.yaml")) {
+            continue; // :-(
+        }
         if (size > @divExact(MiB, 4)) {
             has_large_blobs = true;
             std.debug.print("{s}\n", .{line});
@@ -1452,13 +1455,13 @@ test "tidy unix permissions" {
 // Sanity check for "unexpected" files in the repository.
 test "tidy extensions" {
     const allowed_extensions = std.StaticStringMap(void).initComptime(.{
-        .{".c"},     .{".cs"},   .{".csproj"}, .{".css"},     .{".go"},
-        .{".h"},     .{".hcl"},  .{".html"},   .{".java"},    .{".js"},
-        .{".json"},  .{".md"},   .{".mjs"},    .{".mod"},     .{".mts"},
-        .{".props"}, .{".py"},   .{".rs"},     .{".service"}, .{".sln"},
-        .{".sum"},   .{".svg"},  .{".toml"},   .{".ts"},      .{".txt"},
-        .{".xml"},   .{".yaml"}, .{".yml"},    .{".zig"},     .{".zon"},
-        .{".rb"},
+        .{".c"},     .{".cs"},  .{".csproj"}, .{".css"},     .{".go"},
+        .{".h"},     .{".hcl"}, .{".html"},   .{".java"},    .{".js"},
+        .{".json"},  .{".md"},  .{".mjs"},    .{".mod"},     .{".mts"},
+        .{".props"}, .{".py"},  .{".rs"},     .{".service"}, .{".sln"},
+        .{".sum"},   .{".svg"}, .{".toml"},   .{".ts"},      .{".tsx"},
+        .{".txt"},   .{".xml"}, .{".yaml"},   .{".yml"},     .{".zig"},
+        .{".zon"},   .{".rb"},
     });
 
     const exceptions = std.StaticStringMap(void).initComptime(.{
@@ -1468,6 +1471,7 @@ test "tidy extensions" {
         .{"CNAME"},
         .{"exclude-pmd.properties"},
         .{"favicon.png"},
+        .{"favicon.ico"},
         .{"notfound-light.webp"},
         .{"notfound-dark.webp"},
         .{"preview.webp"},
