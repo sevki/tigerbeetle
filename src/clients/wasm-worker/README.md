@@ -107,3 +107,19 @@ If a build fails with `npm error enoent ... open '.../repo/package.json'`, the D
 command is running from the repo root without first `cd`-ing into `src/clients/wasm-worker` —
 setting "Root directory" in the dashboard does **not** fix this for the deploy/version commands,
 only an explicit `cd` in the command itself does.
+
+### First deploy: apply the Durable Object migration once, via a full deploy
+
+PR/preview builds (any branch other than the dashboard's configured production branch) run the
+**Version command** (`wrangler versions upload`), not the Deploy command. Cloudflare rejects a
+version upload that introduces a *new* Durable Object migration — our `LEDGER` binding's
+`[[migrations]]` entry in `wrangler.toml` — with:
+
+```
+Version upload failed. ... migrations must be fully applied via a non-versioned deployment.
+```
+
+This is expected the very first time: the migration has to be applied once via a full,
+non-versioned `wrangler deploy` (either a production-branch build, using the Deploy command
+above, or a one-off `npx wrangler deploy` run locally with Cloudflare credentials) before any
+`wrangler versions upload` against the same migration will succeed.
