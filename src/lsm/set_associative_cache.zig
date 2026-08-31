@@ -172,20 +172,24 @@ pub fn SetAssociativeCacheType(
 
             assert(value_count_max % value_count_max_multiple == 0);
 
-            const tags = try allocator.alloc(Tag, value_count_max);
+            // These counts/sizes are `u64` (matching `value_count_max`'s parameter type, sized
+            // generically); every allocation below is in-process and always fits in `usize`,
+            // including the 32-bit `usize` on wasm32.
+            const value_count_max_usize: usize = @intCast(value_count_max);
+            const tags = try allocator.alloc(Tag, value_count_max_usize);
             errdefer allocator.free(tags);
 
             const values = try allocator.alignedAlloc(
                 Value,
                 value_alignment,
-                value_count_max,
+                value_count_max_usize,
             );
             errdefer allocator.free(values);
 
-            const counts = try allocator.alloc(u64, @divExact(counts_size, @sizeOf(u64)));
+            const counts = try allocator.alloc(u64, @intCast(@divExact(counts_size, @sizeOf(u64))));
             errdefer allocator.free(counts);
 
-            const clocks = try allocator.alloc(u64, div_ceil(clocks_size, @sizeOf(u64)));
+            const clocks = try allocator.alloc(u64, @intCast(div_ceil(clocks_size, @sizeOf(u64))));
             errdefer allocator.free(clocks);
 
             // Explicitly allocated so that get / get_index can be `*const SetAssociativeCache`.
@@ -231,7 +235,7 @@ pub fn SetAssociativeCacheType(
                 self.metrics.hits += 1;
                 const count = self.counts.get(set.offset + way);
                 self.counts.set(set.offset + way, count +| 1);
-                return set.offset + way;
+                return @intCast(set.offset + way);
             } else {
                 self.metrics.misses += 1;
                 return null;
@@ -310,7 +314,7 @@ pub fn SetAssociativeCacheType(
                 const evicted = set.values[way];
                 set.values[way] = value.*;
                 return .{
-                    .index = set.offset + way,
+                    .index = @intCast(set.offset + way),
                     .updated = .update,
                     .evicted = evicted,
                 };
@@ -355,7 +359,7 @@ pub fn SetAssociativeCacheType(
             if (evicted == null) self.metrics.value_count += 1;
 
             return .{
-                .index = set.offset + way,
+                .index = @intCast(set.offset + way),
                 .updated = .insert,
                 .evicted = evicted,
             };
@@ -403,11 +407,16 @@ pub fn SetAssociativeCacheType(
             const index = fastrange(entropy, self.sets);
             const offset = index * layout.ways;
 
+            // `offset` is a `u64` (matching `sets: u64`, sized for platforms where cache indices
+            // could in principle be large); the cache itself is always allocated in-process and
+            // fits in `usize`, so narrowing here is exact on every supported target, including
+            // wasm32 where `usize` is 32 bits.
+            const offset_usize: usize = @intCast(offset);
             return .{
                 .tag = tag,
                 .offset = offset,
-                .tags = self.tags[offset..][0..layout.ways],
-                .values = self.values[offset..][0..layout.ways],
+                .tags = self.tags[offset_usize..][0..layout.ways],
+                .values = self.values[offset_usize..][0..layout.ways],
             };
         }
 
@@ -653,7 +662,9 @@ fn PackedUnsignedIntegerArrayType(comptime UInt: type) type {
         }
 
         inline fn word(self: PackedUnsignedIntegerArray, index: u64) *Word {
-            return &self.words[@divFloor(index, uints_per_word)];
+            // `index` is `u64`; the backing array is always `usize`-sliceable in-process (even
+            // where `usize` is 32 bits, as on wasm32), so this narrows exactly.
+            return &self.words[@intCast(@divFloor(index, uints_per_word))];
         }
 
         inline fn bits_index(index: u64) BitsIndex {

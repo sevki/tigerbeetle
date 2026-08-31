@@ -255,10 +255,15 @@ pub fn GridType(comptime Storage: type) type {
                 try CheckpointTrailer.init(allocator, .free_set, free_set_encoded_size_max);
             errdefer free_set_checkpoint_blocks_released.deinit(allocator);
 
-            const stash_blocks_count = options.stash_blocks_count +
+            // Both counts feed only in-process allocations (`usize`-sized) from here on; the
+            // `u64` inputs above exist for on-disk-size-style options structs, not because these
+            // counts are ever expected to exceed `usize` (including the 32-bit `usize` on
+            // wasm32).
+            const stash_blocks_count: usize = @intCast(options.stash_blocks_count +
                 vsr.checkpoint_trailer.block_count_for_trailer_size(free_set_encoded_size_max) * 2 +
-                1; // +1 for burst in read_block_callback();
-            const blocks_count = options.cache_blocks_count + stash_blocks_count;
+                1); // +1 for burst in read_block_callback();
+            const blocks_count: usize = @as(usize, @intCast(options.cache_blocks_count)) +
+                stash_blocks_count;
             const blocks = try allocator.alignedAlloc(
                 [constants.block_size]u8,
                 constants.sector_size,
@@ -276,10 +281,11 @@ pub fn GridType(comptime Storage: type) type {
             });
             errdefer blocks_missing.deinit(allocator);
 
-            var cache = try Cache.init(allocator, options.cache_blocks_count, .{ .name = "grid" });
+            const cache_blocks_count: usize = @intCast(options.cache_blocks_count);
+            var cache = try Cache.init(allocator, cache_blocks_count, .{ .name = "grid" });
             errdefer cache.deinit(allocator);
 
-            const cache_locations = try allocator.alloc(u32, options.cache_blocks_count);
+            const cache_locations = try allocator.alloc(u32, cache_blocks_count);
             errdefer allocator.free(cache_locations);
 
             var stash_free = std.AutoArrayHashMapUnmanaged(u32, void).empty;
@@ -292,7 +298,7 @@ pub fn GridType(comptime Storage: type) type {
 
             for (0..blocks_count) |i| {
                 const location: u32 = @intCast(i);
-                if (i < options.cache_blocks_count) {
+                if (i < cache_blocks_count) {
                     cache_locations[i] = location;
                 } else {
                     stash_free.putAssumeCapacityNoClobber(location, {});
@@ -942,8 +948,10 @@ pub fn GridType(comptime Storage: type) type {
                 assert(trigger == .repair);
             }
 
-            // Zero sector padding.
-            @memset(block.*[header.size..vsr.sector_ceil(header.size)], 0);
+            // Zero sector padding. `sector_ceil` returns `u64` (a general disk offset helper);
+            // blocks are always `usize`-sliceable in-process, so this narrows exactly.
+            const sector_ceil: usize = @intCast(vsr.sector_ceil(header.size));
+            @memset(block.*[header.size..sector_ceil], 0);
 
             write.* = .{
                 .callback = callback,
@@ -975,14 +983,17 @@ pub fn GridType(comptime Storage: type) type {
             const write_header = schema.header_from_block(write.block.*);
             assert(write_header.size > @sizeOf(vsr.Header));
             assert(write_header.size <= constants.block_size);
+            // `sector_ceil` returns `u64` (a general disk offset helper); blocks are always
+            // `usize`-sliceable in-process, so this narrows exactly.
+            const write_sector_ceil: usize = @intCast(vsr.sector_ceil(write_header.size));
             assert(stdx.zeroed(
-                write.block.*[write_header.size..vsr.sector_ceil(write_header.size)],
+                write.block.*[write_header.size..write_sector_ceil],
             ));
 
             grid.superblock.storage.write_sectors(
                 write_block_callback,
                 &iop.completion,
-                write.block.*[0..vsr.sector_ceil(write_header.size)],
+                write.block.*[0..write_sector_ceil],
                 .grid,
                 block_offset(write.address),
             );
@@ -1413,7 +1424,10 @@ pub fn GridType(comptime Storage: type) type {
 
             if (header.checksum != expect.checksum) return .unexpected_checksum;
 
-            if (!stdx.zeroed(block[header.size..vsr.sector_ceil(header.size)])) {
+            // `sector_ceil` returns `u64` (a general disk offset helper); blocks are always
+            // `usize`-sliceable in-process, so this narrows exactly.
+            const sector_ceil: usize = @intCast(vsr.sector_ceil(header.size));
+            if (!stdx.zeroed(block[header.size..sector_ceil])) {
                 return .invalid_padding;
             }
 

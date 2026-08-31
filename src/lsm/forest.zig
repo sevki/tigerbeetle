@@ -597,8 +597,10 @@ pub fn ForestType(comptime _Storage: type, comptime groove_cfg: anytype) type {
             assert(beat_input_size == 0);
 
             assert(forest.resource_pool.grid_reservation == null);
+            // Reservation counts are always in-process, `usize`-sized quantities (even where
+            // `usize` is 32 bits, as on wasm32); `u64` here is just for arithmetic headroom.
             forest.resource_pool.grid_reservation = forest.grid.reserve(
-                beat_value_blocks_max + beat_index_blocks_max,
+                @intCast(beat_value_blocks_max + beat_index_blocks_max),
             );
         }
 

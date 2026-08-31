@@ -24,6 +24,7 @@
 //!   - When replica_count≤2, grid faults are disabled.
 //!
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const math = std.math;
@@ -207,8 +208,14 @@ pub const Storage = struct {
         if (options.fault_atlas != null) assert(options.replica_index != null);
 
         const prng = stdx.PRNG.from_seed(options.seed);
-        const sector_count = @divExact(options.size, constants.sector_size);
-        const memory = try allocator.alignedAlloc(u8, constants.sector_size, options.size);
+        // `usize`, not `u64`: `sector_count` only ever feeds `usize`-length allocations/bitsets
+        // below, and in-process storage always fits in `usize` (see the comment on `memory`).
+        const sector_count: usize = @intCast(@divExact(options.size, constants.sector_size));
+        // `options.size` is `u64`; allocations are always `usize`-sized in-process (even where
+        // `usize` is 32 bits, as on wasm32), and callers are expected to pick a `size` that
+        // actually fits in memory, so this narrows exactly.
+        const memory =
+            try allocator.alignedAlloc(u8, constants.sector_size, @intCast(options.size));
         errdefer allocator.free(memory);
 
         var memory_written = try std.DynamicBitSetUnmanaged.initEmpty(allocator, sector_count);
@@ -226,13 +233,13 @@ pub const Storage = struct {
             .init(allocator, {});
         errdefer reads.deinit();
 
-        try reads.ensureTotalCapacity(options.iops_read_max);
+        try reads.ensureTotalCapacity(@intCast(options.iops_read_max));
 
         var writes = std.PriorityQueue(*Storage.Write, void, Storage.Write.less_than)
             .init(allocator, {});
         errdefer writes.deinit();
 
-        try writes.ensureTotalCapacity(options.iops_write_max);
+        try writes.ensureTotalCapacity(@intCast(options.iops_write_max));
 
         return Storage{
             .allocator = allocator,
@@ -459,7 +466,7 @@ pub const Storage = struct {
             .exact,
             u8,
             read.buffer,
-            storage.memory[offset_in_storage..][0..read.buffer.len],
+            storage.memory[@intCast(offset_in_storage)..][0..read.buffer.len],
         );
 
         if (storage.prng.chance(storage.options.read_fault_probability)) {
@@ -548,15 +555,15 @@ pub const Storage = struct {
                 // Don't misdirect a WAL prepare if the corresponding WAL header doesn't match or is
                 // corrupt, to avoid a double-fault in which the journal tries to `fix` the old
                 // prepare.
-                const wal_header = &storage.wal_headers()[header_slot];
-                const wal_prepare = &storage.wal_prepares()[header_slot];
+                const wal_header = &storage.wal_headers()[@intCast(header_slot)];
+                const wal_prepare = &storage.wal_prepares()[@intCast(header_slot)];
                 if (wal_header.checksum != wal_prepare.header.checksum) {
                     return .corrupt;
                 }
 
                 const wal_sector =
                     @divFloor(vsr.Zone.wal_headers.start() + header_offset, constants.sector_size);
-                if (storage.faults.isSet(wal_sector)) {
+                if (storage.faults.isSet(@intCast(wal_sector))) {
                     return .corrupt;
                 }
             }
@@ -617,7 +624,7 @@ pub const Storage = struct {
         stdx.copy_disjoint(
             .exact,
             u8,
-            storage.memory[offset_in_storage..][0..write.buffer.len],
+            storage.memory[@intCast(offset_in_storage)..][0..write.buffer.len],
             write.buffer,
         );
 
@@ -667,7 +674,7 @@ pub const Storage = struct {
             const overlay_mistaken_buffer = &storage.overlay_buffers[overlay_mistaken_index];
             const overlay_intended_buffer = &storage.overlay_buffers[overlay_intended_index];
             const target_intended_buffer =
-                storage.memory[write.zone.offset(write.offset)..][0..write.buffer.len];
+                storage.memory[@intCast(write.zone.offset(write.offset))..][0..write.buffer.len];
 
             stdx.copy_disjoint(.inexact, u8, overlay_mistaken_buffer, write.buffer);
             stdx.copy_disjoint(.inexact, u8, overlay_intended_buffer, target_intended_buffer);
@@ -812,7 +819,7 @@ pub const Storage = struct {
     ) *const superblock.SuperBlockHeader {
         const offset =
             vsr.Zone.superblock.offset(@as(usize, copy_) * superblock.superblock_copy_size);
-        const bytes = storage.memory[offset..][0..@sizeOf(superblock.SuperBlockHeader)];
+        const bytes = storage.memory[@intCast(offset)..][0..@sizeOf(superblock.SuperBlockHeader)];
         return @alignCast(mem.bytesAsValue(superblock.SuperBlockHeader, bytes));
     }
 
@@ -821,7 +828,7 @@ pub const Storage = struct {
         const size = vsr.Zone.wal_headers.size().?;
         return @alignCast(mem.bytesAsSlice(
             vsr.Header.Prepare,
-            storage.memory[offset..][0..size],
+            storage.memory[@intCast(offset)..][0..@as(usize, @intCast(size))],
         ));
     }
 
@@ -843,7 +850,7 @@ pub const Storage = struct {
         const size = vsr.Zone.wal_prepares.size().?;
         return @alignCast(mem.bytesAsSlice(
             MessageRawType(.prepare),
-            storage.memory[offset..][0..size],
+            storage.memory[@intCast(offset)..][0..@as(usize, @intCast(size))],
         ));
     }
 
@@ -852,7 +859,7 @@ pub const Storage = struct {
         const size = vsr.Zone.client_replies.size().?;
         return @alignCast(mem.bytesAsSlice(
             MessageRawType(.reply),
-            storage.memory[offset..][0..size],
+            storage.memory[@intCast(offset)..][0..@as(usize, @intCast(size))],
         ));
     }
 
@@ -863,8 +870,12 @@ pub const Storage = struct {
         assert(address > 0);
 
         const block_offset = vsr.Zone.grid.offset((address - 1) * constants.block_size);
-        if (storage.memory_written.isSet(@divExact(block_offset, constants.sector_size))) {
-            const block_buffer = storage.memory[block_offset..][0..constants.block_size];
+        // `block_offset` is `u64` (storage offsets are byte-addressed across the whole file);
+        // `isSet` wants a `usize` index. In-memory `Storage` is always sized well within
+        // `usize` (even the 32-bit `usize` on wasm32), so this narrows exactly.
+        const block_sector = @divExact(block_offset, constants.sector_size);
+        if (storage.memory_written.isSet(@intCast(block_sector))) {
+            const block_buffer = storage.memory[@intCast(block_offset)..][0..constants.block_size];
             const block_header = schema.header_from_block(@alignCast(block_buffer));
             assert(block_header.address == address);
 
@@ -974,9 +985,11 @@ const SectorRange = struct {
     }
 
     fn from_offset(offset_in_storage: u64, size: usize) SectorRange {
+        // See the comment in `grid_block` above re: `u64` storage offsets narrowing exactly to
+        // `usize` for the (small, in-memory) storage sizes this runs against.
         return .{
-            .min = @divExact(offset_in_storage, constants.sector_size),
-            .max = @divExact(offset_in_storage + size, constants.sector_size),
+            .min = @intCast(@divExact(offset_in_storage, constants.sector_size)),
+            .max = @intCast(@divExact(offset_in_storage + size, constants.sector_size)),
         };
     }
 
@@ -1191,7 +1204,7 @@ pub const ClusterFaultAtlas = struct {
         var fault_start: ?usize = null;
         var fault_count: usize = 0;
 
-        var chunk: usize = @divFloor(offset_in_zone, chunks.chunk_size);
+        var chunk: usize = @intCast(@divFloor(offset_in_zone, chunks.chunk_size));
         while (chunk * chunks.chunk_size < offset_in_zone + size) : (chunk += 1) {
             if (chunks.faulty[replica_index].isSet(chunk)) {
                 if (fault_start == null) fault_start = chunk;
@@ -1206,7 +1219,7 @@ pub const ClusterFaultAtlas = struct {
                 zone,
                 chunks.chunk_size * start,
                 chunks.chunk_size * fault_count,
-            ).intersect(SectorRange.from_zone(zone, offset_in_zone, size)).?.random(prng);
+            ).intersect(SectorRange.from_zone(zone, offset_in_zone, @intCast(size))).?.random(prng);
         } else {
             return null;
         }
@@ -1219,6 +1232,13 @@ const StackTrace = struct {
 
     fn capture() StackTrace {
         var addresses: [64]usize = undefined;
+        // `std.debug.captureStackTrace` walks native frame pointers, which don't exist the same
+        // way on wasm32 — it reads out-of-bounds linear memory there instead of failing
+        // gracefully. This trace is diagnostic only (rendered in a panic message if two writes
+        // to the same sector conflict), so an empty one is a correctness no-op on wasm32, not a
+        // functional loss.
+        if (builtin.cpu.arch.isWasm()) return StackTrace{ .addresses = addresses, .index = 0 };
+
         var stack_trace = std.builtin.StackTrace{
             .instruction_addresses = &addresses,
             .index = 0,

@@ -938,8 +938,13 @@ pub const Operation = enum(u8) {
 comptime {
     const target = builtin.target;
 
-    if (target.os.tag != .linux and !target.os.tag.isDarwin() and target.os.tag != .windows) {
-        @compileError("linux, windows or macos is required for io");
+    // wasm32 (workerd/browsers) never touches `io.zig`'s production io_uring/kqueue/IOCP
+    // backend: only the data types in this file (Account/Transfer/...) and the in-memory state
+    // machine are used there, driven directly against `testing/storage.zig` instead of real IO.
+    if (target.os.tag != .linux and !target.os.tag.isDarwin() and target.os.tag != .windows and
+        !target.cpu.arch.isWasm())
+    {
+        @compileError("linux, windows, macos, or wasm32 is required");
     }
 
     // We require little-endian architectures everywhere for efficient network deserialization:

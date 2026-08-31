@@ -151,6 +151,7 @@ pub fn build_with_options(
         .test_jni = b.step("test:jni", "Run Java JNI tests"),
         .vopr = b.step("vopr", "Run the VOPR"),
         .vopr_build = b.step("vopr:build", "Build the VOPR"),
+        .wasm = b.step("wasm", "Build the in-memory single-node WASM module"),
     };
 
     // Build options passed with `-D` flags.
@@ -257,9 +258,14 @@ pub fn build_with_options(
     });
 
     var releases_previous = release_history(b);
+    // A fork without any `X.Y.Z` release tags in its history (e.g. one that was never pushed
+    // the upstream tags) has no local tag to test upgrading from; fall back to the latest
+    // published release rather than crashing every `zig build` invocation. On a repo with real
+    // release history this never triggers: there's always a previous tag.
+    const release_previous_tag = release_history_next(&releases_previous) orelse "latest";
     const tigerbeetle_test_previous = fetch_release(
         b,
-        releases_previous.next().?,
+        release_previous_tag,
         options.target,
         options.mode,
     );
@@ -296,6 +302,13 @@ pub fn build_with_options(
         .stdx_module = stdx_module,
         .vsr_module = vsr_module,
         .target = options.target,
+        .mode = options.mode,
+    });
+
+    // zig build wasm
+    build_wasm(b, build_steps.wasm, .{
+        .stdx_module = stdx_module,
+        .vsr_module = vsr_module,
         .mode = options.mode,
     });
 
@@ -547,6 +560,7 @@ fn build_ci(
         smoke, // Quickly check formatting and such.
         @"test", // Main test suite + VOPR + fuzzers, excluding clients.
         aof, // Dedicated test for AOF, which is somewhat slow to run.
+        wasm, // Build src/wasm/tb_wasm.zig and test it under workerd.
 
         clients, // Tests for all language clients below.
         dotnet,
@@ -620,6 +634,18 @@ fn build_ci(
         const aof = b.addSystemCommand(&.{"./.github/ci/test_aof.sh"});
         hide_stderr(aof);
         step_ci.dependOn(&aof.step);
+    }
+    if (all or mode == .wasm) {
+        // Not `build_ci_step`: `test_wasm_worker.sh` needs `zig-out/wasm/tb_wasm.wasm` to
+        // already exist, so it must depend on this step specifically rather than merely being
+        // a sibling dependency of `step_ci` (which wouldn't guarantee ordering between them).
+        const build_wasm_cmd = b.addSystemCommand(&.{ b.graph.zig_exe, "build", "wasm" });
+        build_wasm_cmd.max_stdio_size = 128 * MiB;
+        hide_stderr(build_wasm_cmd);
+
+        const wasm_worker = b.addSystemCommand(&.{"./.github/ci/test_wasm_worker.sh"});
+        wasm_worker.step.dependOn(&build_wasm_cmd.step);
+        step_ci.dependOn(&wasm_worker.step);
     }
     inline for (&.{ CIMode.dotnet, .go, .rust, .java, .node, .python, .ruby }) |language| {
         if (default or mode == .clients or mode == language) {
@@ -732,6 +758,58 @@ fn build_check(
     tigerbeetle.root_module.addImport("stdx", options.stdx_module);
     tigerbeetle.root_module.addImport("vsr", options.vsr_module);
     step_check.dependOn(&tigerbeetle.step);
+}
+
+/// Builds `src/wasm/tb_wasm.zig`: a single-node, in-memory TigerBeetle engine (production state
+/// machine + LSM, backed by the deterministic in-memory `testing/storage.zig`) compiled to
+/// wasm32-freestanding, for embedding in Cloudflare Workers/workerd or browsers. No production
+/// `src/io.zig` code is reachable from this entry point: there is no real disk or network IO
+/// here, by design, not because wasm32 support was bolted onto it.
+fn build_wasm(
+    b: *std.Build,
+    step_wasm: *std.Build.Step,
+    options: struct {
+        stdx_module: *std.Build.Module,
+        vsr_module: *std.Build.Module,
+        mode: std.builtin.OptimizeMode,
+    },
+) void {
+    // wasm32-wasi (not freestanding): `src/constants.zig`/`src/vsr/superblock.zig` reach
+    // `std.net.Address` at comptime regardless of what runtime code path is taken, and
+    // `std.heap.GeneralPurposeAllocator`'s error-log path reaches `std.Thread`/`std.posix` file
+    // descriptors — none of which exist for freestanding. WASI's minimal libc/posix shim covers
+    // all of this for free without needing to touch that code.
+    const target = b.resolveTargetQuery(Query.parse(.{
+        .arch_os_abi = "wasm32-wasi",
+    }) catch unreachable);
+
+    const wasm = b.addExecutable(.{
+        .name = "tb_wasm",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/wasm/tb_wasm.zig"),
+            .target = target,
+            .optimize = options.mode,
+        }),
+    });
+    wasm.root_module.addImport("stdx", options.stdx_module);
+    wasm.root_module.addImport("vsr", options.vsr_module);
+    // "reactor" model: no `_start`/`main`, the module just exposes `export fn`s to be called
+    // directly by the host (workerd/JS), same shape as a plain library.
+    wasm.wasi_exec_model = .reactor;
+    wasm.rdynamic = true;
+    // wasi-libc's CRT provides `_initialize` (the reactor model's entry point) and the minimal
+    // libc surface `std.heap.page_allocator`/wasi startup code expects.
+    wasm.linkLibC();
+    // `tb_wasm.zig`'s `heap_buffer` (a large static/.bss allocator arena — see its comment for
+    // why it needs to be this big) alone needs to fit in linear memory, plus the Zig/wasi-libc
+    // stack and the module's other statics. The default linker-inferred max (sized only for
+    // required static data) is far too small and leaves `memory.grow` permanently failing.
+    wasm.max_memory = 128 * 1024 * 1024;
+
+    const install = b.addInstallArtifact(wasm, .{
+        .dest_dir = .{ .override = .{ .custom = "wasm" } },
+    });
+    step_wasm.dependOn(&install.step);
 }
 
 fn build_tigerbeetle(
@@ -1355,9 +1433,19 @@ fn build_vortex_options(
     if (options.target.result.os.tag == .linux) {
         var tags_iterator = release_history(b);
         for (server_exes[2..], driver_exes[2..]) |*server, *driver| {
-            const tag = tags_iterator.next().?;
-            server.* = fetch_release(b, tag, options.target, options.mode);
-            driver.* = fetch_vortex_driver_zig(b, tag, options.target, options.mode);
+            // A fork without any `X.Y.Z` release tags in its history (e.g. one that was never
+            // pushed the upstream tags) has nothing to fetch a previous release from; fall back
+            // to testing against the current build rather than crashing the entire `zig build`
+            // invocation. On a repo with real release history this never triggers: there's
+            // always a next tag.
+            const tag = release_history_next(&tags_iterator);
+            if (tag) |tag_found| {
+                server.* = fetch_release(b, tag_found, options.target, options.mode);
+                driver.* = fetch_vortex_driver_zig(b, tag_found, options.target, options.mode);
+            } else {
+                server.* = options.tigerbeetle_test;
+                driver.* = options.vortex_driver_zig;
+            }
         }
     }
 
@@ -1400,7 +1488,13 @@ fn build_vortex_options(
 }
 
 fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
-    const tags_string = b.run(&.{
+    var code: u8 = undefined;
+    // A shallow clone with only a single commit (as some CI/build providers use, with no way to
+    // configure fetch depth) has no `HEAD^` at all, which makes the `git tag` invocation itself
+    // fail to spawn correctly rather than just print nothing — treat that the same as "no tags"
+    // instead of crashing every `zig build` invocation. On a normal, non-shallow clone this
+    // always succeeds.
+    const tags_string = b.runAllowFail(&.{
         "git", "-C",       b.path(".").getPath(b),
         "tag",
         // Only list ancestors of the current commit.
@@ -1409,8 +1503,18 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
         "--merged", "HEAD^",
         "--sort=-committerdate", // Sort from newest to oldest.
         "--list", "[0-9]*.[0-9]*.[0-9]*", // NB: This is not anchored (^$).
-    });
+    }, &code, .Inherit) catch "";
     return std.mem.splitScalar(u8, tags_string, '\n');
+}
+
+/// Like `iterator.next()`, but skips blank entries — `git tag --list` prints nothing (a single
+/// empty line once split) when no tag matches, which `release_history`'s callers should treat
+/// the same as "no more tags" rather than as a tag literally named "".
+fn release_history_next(iterator: *std.mem.SplitIterator(u8, .scalar)) ?[]const u8 {
+    while (iterator.next()) |candidate| {
+        if (candidate.len > 0) return candidate;
+    }
+    return null;
 }
 
 fn build_vortex_driver_zig(

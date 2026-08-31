@@ -166,11 +166,13 @@ pub fn ManifestLogType(comptime Storage: type) type {
             }
 
             manifest_log.log_block_checksums =
-                try RingBufferType(u128, .slice).init(allocator, manifest_log.pace.log_blocks_max);
+                try RingBufferType(u128, .slice)
+                    .init(allocator, @intCast(manifest_log.pace.log_blocks_max));
             errdefer manifest_log.log_block_checksums.deinit(allocator);
 
             manifest_log.log_block_addresses =
-                try RingBufferType(u64, .slice).init(allocator, manifest_log.pace.log_blocks_max);
+                try RingBufferType(u64, .slice)
+                    .init(allocator, @intCast(manifest_log.pace.log_blocks_max));
             errdefer manifest_log.log_block_addresses.deinit(allocator);
 
             const blocks_count = compaction_pace.blocks_count();

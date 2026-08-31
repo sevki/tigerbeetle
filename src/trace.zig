@@ -103,7 +103,9 @@ const log = std.log.scoped(.trace);
 const stdx = @import("stdx");
 const KiB = stdx.KiB;
 const Duration = stdx.Duration;
-const IO = @import("io.zig").IO;
+// See the matching comment in `trace/statsd.zig`, whose `IO` alias this reuses so both files
+// agree on the same (possibly stubbed, on wasm32) type.
+const IO = @import("trace/statsd.zig").IO;
 const Time = @import("time.zig").Time;
 const StatsD = @import("trace/statsd.zig").StatsD;
 pub const Event = @import("trace/event.zig").Event;
@@ -186,15 +188,22 @@ pub fn init(
     const buffer = try allocator.alloc(u8, trace_span_size_max);
     errdefer allocator.free(buffer);
 
-    var statsd = try switch (options.statsd_options) {
-        .log => StatsD.init_log(allocator, process_id),
-        .udp => |statsd_options| StatsD.init_udp(
-            allocator,
-            process_id,
-            statsd_options.io,
-            statsd_options.address,
-        ),
-    };
+    // On wasm32, `.udp` is never selected (there's no wasm32 `io.zig`/`stdx.SocketAddress` to
+    // back it with), so that whole arm — which reaches `std.net.Address`, unsupported on
+    // wasm32 — is skipped from semantic analysis entirely via this `comptime`-known branch,
+    // rather than merely being unreachable at runtime (which Zig still type-checks).
+    var statsd = if (comptime builtin.cpu.arch.isWasm())
+        try StatsD.init_log(allocator, process_id)
+    else
+        try switch (options.statsd_options) {
+            .log => StatsD.init_log(allocator, process_id),
+            .udp => |statsd_options| StatsD.init_udp(
+                allocator,
+                process_id,
+                statsd_options.io,
+                statsd_options.address,
+            ),
+        };
     errdefer statsd.deinit(allocator);
 
     const events_metric =

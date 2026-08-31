@@ -50,7 +50,13 @@ comptime {
     //
     // If you're trying to compile TigerBeetle for an older CPU without AES hardware acceleration,
     // you'll need to disable the following assert.
-    assert(std.crypto.core.aes.has_hardware_support);
+    //
+    // wasm32 (workerd/browsers) has no AES hardware acceleration exposed to it at all, so it
+    // always falls back to the software Aegis implementation. That's the explicitly-sanctioned
+    // "older CPU" case described above, just applied to a whole target family instead of one CPU.
+    if (!builtin.cpu.arch.isWasm()) {
+        assert(std.crypto.core.aes.has_hardware_support);
+    }
 }
 
 fn seed_init() void {

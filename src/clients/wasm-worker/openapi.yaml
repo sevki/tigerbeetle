@@ -1,0 +1,314 @@
+openapi: 3.1.0
+info:
+  title: TigerBeetle WASM Worker
+  version: "0.1.0"
+  description: >-
+    HTTP API for one TigerBeetleLedger Durable Object (src/index.mjs), running the production
+    TigerBeetle state machine compiled to WASM (src/wasm/tb_wasm.zig). All u128/u64 values
+    (account/transfer ids, amounts) are transported as decimal strings, since JSON numbers can't
+    represent the full range. See README.md for what this is and isn't.
+
+servers:
+  - url: http://127.0.0.1:9876
+    description: celld dev (npm run dev)
+  - url: http://127.0.0.1:8787
+    description: wrangler dev (npm run dev:workerd)
+
+paths:
+  /ledger/{ledgerId}/accounts:
+    post:
+      operationId: createAccounts
+      summary: Create one or more accounts.
+      parameters:
+        - $ref: "#/components/parameters/LedgerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/AccountCreate"
+      responses:
+        "200":
+          description: One CreateResult per submitted account, same order as the request.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreateResult"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /ledger/{ledgerId}/transfers:
+    post:
+      operationId: createTransfers
+      summary: Create one or more transfers.
+      parameters:
+        - $ref: "#/components/parameters/LedgerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/TransferCreate"
+      responses:
+        "200":
+          description: One CreateResult per submitted transfer, same order as the request.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CreateResult"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /ledger/{ledgerId}/lookup_accounts:
+    post:
+      operationId: lookupAccounts
+      summary: Look up accounts by id.
+      parameters:
+        - $ref: "#/components/parameters/LedgerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Id"
+      responses:
+        "200":
+          description: The accounts that exist, in lookup order (missing ids are omitted).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Account"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /ledger/{ledgerId}/lookup_transfers:
+    post:
+      operationId: lookupTransfers
+      summary: Look up transfers by id.
+      parameters:
+        - $ref: "#/components/parameters/LedgerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Id"
+      responses:
+        "200":
+          description: The transfers that exist, in lookup order (missing ids are omitted).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transfer"
+        "400":
+          $ref: "#/components/responses/Error"
+
+components:
+  parameters:
+    LedgerId:
+      name: ledgerId
+      in: path
+      required: true
+      description: >-
+        Names the Durable Object instance (one in-memory TigerBeetle ledger per distinct
+        ledgerId). Not a TigerBeetle `ledger` field/account grouping.
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: The request was rejected before reaching the state machine (e.g. bad JSON).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    Id:
+      description: A u128 id, as a decimal string.
+      type: string
+      pattern: "^[0-9]+$"
+
+    U128:
+      description: A u128 value, as a decimal string.
+      type: string
+      pattern: "^[0-9]+$"
+
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    AccountCreate:
+      type: object
+      required: [id, ledger, code]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        ledger:
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+        code:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        flags:
+          description: Bitwise-OR of AccountFlags (see src/tigerbeetle.zig).
+          type: integer
+          minimum: 0
+          maximum: 65535
+          default: 0
+        user_data_128: { $ref: "#/components/schemas/U128" }
+        user_data_64:
+          description: u64, as a decimal string.
+          type: string
+          pattern: "^[0-9]+$"
+        user_data_32:
+          type: integer
+
+    TransferCreate:
+      type: object
+      required: [id, debit_account_id, credit_account_id, amount, ledger, code]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        debit_account_id: { $ref: "#/components/schemas/Id" }
+        credit_account_id: { $ref: "#/components/schemas/Id" }
+        amount: { $ref: "#/components/schemas/U128" }
+        pending_id: { $ref: "#/components/schemas/Id" }
+        ledger:
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+        code:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        timeout:
+          description: Seconds; only meaningful with the `pending` flag.
+          type: integer
+          minimum: 0
+        flags:
+          description: Bitwise-OR of TransferFlags (see src/tigerbeetle.zig).
+          type: integer
+          minimum: 0
+          maximum: 65535
+          default: 0
+        user_data_128: { $ref: "#/components/schemas/U128" }
+        user_data_64:
+          description: u64, as a decimal string.
+          type: string
+          pattern: "^[0-9]+$"
+        user_data_32:
+          type: integer
+
+    CreateResult:
+      description: >-
+        One per submitted event, same order as the request. `status` is CreateAccountStatus or
+        CreateTransferStatus (src/tigerbeetle.zig): 4294967295 (u32 max) means the event was
+        applied; any other value names the rejection reason.
+      type: object
+      required: [timestamp, status]
+      properties:
+        timestamp:
+          description: u64 nanoseconds, as a decimal string. 0 if the event was rejected.
+          type: string
+          pattern: "^[0-9]+$"
+        status:
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+
+    Account:
+      type: object
+      required:
+        - id
+        - debits_pending
+        - debits_posted
+        - credits_pending
+        - credits_posted
+        - user_data_128
+        - user_data_64
+        - user_data_32
+        - ledger
+        - code
+        - flags
+        - timestamp
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        debits_pending: { $ref: "#/components/schemas/U128" }
+        debits_posted: { $ref: "#/components/schemas/U128" }
+        credits_pending: { $ref: "#/components/schemas/U128" }
+        credits_posted: { $ref: "#/components/schemas/U128" }
+        user_data_128: { $ref: "#/components/schemas/U128" }
+        user_data_64:
+          type: string
+          pattern: "^[0-9]+$"
+        user_data_32:
+          type: integer
+        ledger:
+          type: integer
+        code:
+          type: integer
+        flags:
+          type: integer
+        timestamp:
+          type: string
+          pattern: "^[0-9]+$"
+
+    Transfer:
+      type: object
+      required:
+        - id
+        - debit_account_id
+        - credit_account_id
+        - amount
+        - pending_id
+        - user_data_128
+        - user_data_64
+        - user_data_32
+        - timeout
+        - ledger
+        - code
+        - flags
+        - timestamp
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        debit_account_id: { $ref: "#/components/schemas/Id" }
+        credit_account_id: { $ref: "#/components/schemas/Id" }
+        amount: { $ref: "#/components/schemas/U128" }
+        pending_id: { $ref: "#/components/schemas/Id" }
+        user_data_128: { $ref: "#/components/schemas/U128" }
+        user_data_64:
+          type: string
+          pattern: "^[0-9]+$"
+        user_data_32:
+          type: integer
+        timeout:
+          type: integer
+        ledger:
+          type: integer
+        code:
+          type: integer
+        flags:
+          type: integer
+        timestamp:
+          type: string
+          pattern: "^[0-9]+$"
