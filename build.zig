@@ -1488,7 +1488,13 @@ fn build_vortex_options(
 }
 
 fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
-    const tags_string = b.run(&.{
+    var code: u8 = undefined;
+    // A shallow clone with only a single commit (as some CI/build providers use, with no way to
+    // configure fetch depth) has no `HEAD^` at all, which makes the `git tag` invocation itself
+    // fail to spawn correctly rather than just print nothing — treat that the same as "no tags"
+    // instead of crashing every `zig build` invocation. On a normal, non-shallow clone this
+    // always succeeds.
+    const tags_string = b.runAllowFail(&.{
         "git", "-C",       b.path(".").getPath(b),
         "tag",
         // Only list ancestors of the current commit.
@@ -1497,7 +1503,7 @@ fn release_history(b: *std.Build) std.mem.SplitIterator(u8, .scalar) {
         "--merged", "HEAD^",
         "--sort=-committerdate", // Sort from newest to oldest.
         "--list", "[0-9]*.[0-9]*.[0-9]*", // NB: This is not anchored (^$).
-    });
+    }, &code, .Inherit) catch "";
     return std.mem.splitScalar(u8, tags_string, '\n');
 }
 
