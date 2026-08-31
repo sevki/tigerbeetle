@@ -40,14 +40,20 @@ export default function TransfersPage() {
   const [loading, setLoading] = React.useState(false);
   const [searchId, setSearchId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
+  // Starts empty rather than `randomId()` -- see the identical comment in accounts/page.tsx.
   const [form, setForm] = React.useState({
-    id: randomId(),
+    id: "",
     debit_account_id: "",
     credit_account_id: "",
     amount: "100",
     ledger: "1",
     code: "10",
   });
+
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only id generation, see accounts/page.tsx
+    setForm((f) => ({ ...f, id: randomId() }));
+  }, []);
 
   const refresh = React.useCallback(
     async (ids: string[]) => {
@@ -91,6 +97,7 @@ export default function TransfersPage() {
           amount: form.amount,
           ledger: Number(form.ledger),
           code: Number(form.code),
+          flags: 0,
         },
       ]);
       if (result.status !== STATUS_OK) {

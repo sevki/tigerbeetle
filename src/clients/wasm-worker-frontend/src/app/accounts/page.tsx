@@ -39,11 +39,21 @@ export default function AccountsPage() {
   const [loading, setLoading] = React.useState(false);
   const [searchId, setSearchId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
+  // Starts empty rather than `randomId()` -- that's non-deterministic (Date.now()/Math.random()),
+  // so calling it directly in useState's initializer would produce a different id on the server
+  // render than on client hydration (a real hydration mismatch, not just a test artifact: the id
+  // briefly visible in the DOM would differ from the one actually submitted). Filled in once,
+  // client-only, below.
   const [form, setForm] = React.useState({
-    id: randomId(),
+    id: "",
     ledger: "1",
     code: "10",
   });
+
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- client-only id generation, see above
+    setForm((f) => ({ ...f, id: randomId() }));
+  }, []);
 
   const refresh = React.useCallback(
     async (ids: string[]) => {
@@ -81,6 +91,7 @@ export default function AccountsPage() {
           id: form.id,
           ledger: Number(form.ledger),
           code: Number(form.code),
+          flags: 0,
         },
       ]);
       if (result.status !== STATUS_OK) {

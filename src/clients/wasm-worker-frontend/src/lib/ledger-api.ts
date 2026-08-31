@@ -1,49 +1,18 @@
-// Thin client for the TigerBeetle WASM Worker's HTTP API — see
-// src/clients/wasm-worker/API.md in the tigerbeetle repo for the full reference. u128/u64 values
-// are transported as decimal strings on the wire (JSON numbers can't hold a full u64/u128), so
-// every ID/amount field here is typed and sent as `string`.
+// Thin client for the TigerBeetle WASM Worker's HTTP API, built on the same
+// openapi-fetch + openapi-typescript pairing wasm-worker's own tests use (see
+// test/openapi.celld.test.mjs there) — `src/openapi.d.ts` here is generated from
+// ../wasm-worker/openapi.yaml (the canonical spec) by `pnpm generate:client`, so the request/
+// response shapes below are never hand-duplicated from it.
+import createClient from "openapi-fetch";
+import type { paths, components } from "@/openapi";
 
-export interface AccountInput {
-  id: string;
-  ledger: number;
-  code: number;
-  flags?: number;
-  user_data_128?: string;
-  user_data_64?: string;
-  user_data_32?: number;
-}
+export type AccountInput = components["schemas"]["AccountCreate"];
+export type TransferInput = components["schemas"]["TransferCreate"];
+export type OperationResult = components["schemas"]["CreateResult"];
+export type Account = components["schemas"]["Account"];
+export type Transfer = components["schemas"]["Transfer"];
 
-export interface TransferInput {
-  id: string;
-  debit_account_id: string;
-  credit_account_id: string;
-  amount: string;
-  ledger: number;
-  code: number;
-  flags?: number;
-  user_data_128?: string;
-  user_data_64?: string;
-  user_data_32?: number;
-}
-
-export interface OperationResult {
-  timestamp: string;
-  status: number;
-}
-
-export interface Account extends AccountInput {
-  debits_pending: string;
-  debits_posted: string;
-  credits_pending: string;
-  credits_posted: string;
-  timestamp: string;
-}
-
-export interface Transfer extends TransferInput {
-  timestamp: string;
-}
-
-// 0xffffffff — see API.md's "Errors" section.
+// 0xffffffff — see wasm-worker/API.md's "Errors" section.
 export const STATUS_OK = 4294967295;
 
 export class LedgerApiError extends Error {
@@ -57,43 +26,48 @@ export class LedgerApiError extends Error {
 }
 
 export class LedgerClient {
+  private readonly client: ReturnType<typeof createClient<paths>>;
+
   constructor(
-    private readonly baseUrl: string,
+    baseUrl: string,
     private readonly ledgerId: string,
-  ) {}
+  ) {
+    this.client = createClient<paths>({ baseUrl });
+  }
 
-  private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(
-      `${this.baseUrl}/ledger/${encodeURIComponent(this.ledgerId)}${path}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      },
+  async createAccounts(accounts: AccountInput[]): Promise<OperationResult[]> {
+    const { data, error, response } = await this.client.POST(
+      "/ledger/{ledgerId}/accounts",
+      { params: { path: { ledgerId: this.ledgerId } }, body: accounts },
     );
-    if (!res.ok) {
-      const payload = await res.json().catch(() => ({}));
-      throw new LedgerApiError(
-        payload.error ?? `request failed with HTTP ${res.status}`,
-        res.status,
-      );
-    }
-    return res.json() as Promise<T>;
+    if (error) throw new LedgerApiError(error.error, response.status);
+    return data;
   }
 
-  createAccounts(accounts: AccountInput[]): Promise<OperationResult[]> {
-    return this.post("/accounts", accounts);
+  async createTransfers(transfers: TransferInput[]): Promise<OperationResult[]> {
+    const { data, error, response } = await this.client.POST(
+      "/ledger/{ledgerId}/transfers",
+      { params: { path: { ledgerId: this.ledgerId } }, body: transfers },
+    );
+    if (error) throw new LedgerApiError(error.error, response.status);
+    return data;
   }
 
-  createTransfers(transfers: TransferInput[]): Promise<OperationResult[]> {
-    return this.post("/transfers", transfers);
+  async lookupAccounts(ids: string[]): Promise<Account[]> {
+    const { data, error, response } = await this.client.POST(
+      "/ledger/{ledgerId}/lookup_accounts",
+      { params: { path: { ledgerId: this.ledgerId } }, body: ids },
+    );
+    if (error) throw new LedgerApiError(error.error, response.status);
+    return data;
   }
 
-  lookupAccounts(ids: string[]): Promise<Account[]> {
-    return this.post("/lookup_accounts", ids);
-  }
-
-  lookupTransfers(ids: string[]): Promise<Transfer[]> {
-    return this.post("/lookup_transfers", ids);
+  async lookupTransfers(ids: string[]): Promise<Transfer[]> {
+    const { data, error, response } = await this.client.POST(
+      "/ledger/{ledgerId}/lookup_transfers",
+      { params: { path: { ledgerId: this.ledgerId } }, body: ids },
+    );
+    if (error) throw new LedgerApiError(error.error, response.status);
+    return data;
   }
 }

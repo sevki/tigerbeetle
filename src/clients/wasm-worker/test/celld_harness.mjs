@@ -10,15 +10,35 @@ const packageDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 export function startCelld({ port, watchDir }) {
   const bin = process.env.CELLD_BIN ?? "celld";
+  // `celld dev` bundles with esbuild and needs it findable — explicit here (rather than relying
+  // on the caller's PATH containing this package's node_modules/.bin, e.g. via `npm run`)
+  // because callers outside this package (the frontend's Playwright e2e tests) invoke this
+  // harness without that PATH set up.
   const child = spawn(bin, ["dev", ".", "--port", String(port)], {
     cwd: packageDir,
-    env: { ...process.env, CELLD_WATCH: watchDir },
+    env: {
+      ...process.env,
+      CELLD_WATCH: watchDir,
+      CELLD_ESBUILD:
+        process.env.CELLD_ESBUILD ?? path.join(packageDir, "node_modules", ".bin", "esbuild"),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   let output = "";
-  child.stdout.on("data", (d) => (output += d));
-  child.stderr.on("data", (d) => (output += d));
+  // celld's first successful bundle is often followed by one or more "change detected;
+  // rebuilding" cycles (its file watcher picking up its own just-written state under
+  // `.celld/dev`), each of which briefly resets in-flight connections. Tracking the most recent
+  // one lets waitUntilReady require an actual quiet period after the *last* rebuild, rather than
+  // guessing a fixed number of blips — a probe-count guess was observed to still land requests
+  // mid-restart when celld took more than one extra cycle to settle.
+  let lastChangeDetectedAt = 0;
+  const onOutput = (d) => {
+    output += d;
+    if (String(d).includes("change detected")) lastChangeDetectedAt = Date.now();
+  };
+  child.stdout.on("data", onOutput);
+  child.stderr.on("data", onOutput);
 
   const url = `http://127.0.0.1:${port}`;
 
@@ -30,15 +50,13 @@ export function startCelld({ port, watchDir }) {
         throw new Error(`celld exited early (code ${child.exitCode}):\n${output}`);
       }
       try {
-        // Any HTTP response (even a 4xx from an unrecognized route) proves the process is up
-        // and the Worker is handling requests. celld's first successful bundle is sometimes
-        // followed almost immediately by one more "change detected; rebuilding" cycle (its file
-        // watcher picking up its own just-written state), which briefly resets in-flight
-        // connections — requiring two consecutive successes (with a short gap) rides out that
-        // one-time blip instead of declaring ready right into it.
+        // Any HTTP response (even a 4xx from an unrecognized route) proves the process is up and
+        // the Worker is handling requests.
         await fetch(`${url}/`, { method: "GET" });
         consecutiveOk += 1;
-        if (consecutiveOk >= 2) return;
+        // Require both several consecutive successes AND a real quiet period since the last
+        // observed rebuild, so a rebuild that starts between probes doesn't slip through.
+        if (consecutiveOk >= 3 && Date.now() - lastChangeDetectedAt > 750) return;
       } catch {
         consecutiveOk = 0;
       }
