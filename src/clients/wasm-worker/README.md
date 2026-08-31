@@ -87,23 +87,23 @@ curl -X POST localhost:9876/ledger/my-ledger/accounts -d '[{"id":"1","ledger":1,
 
 This package is designed to be deployed straight from Cloudflare's dashboard-configured Git
 integration ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)), which
-clones the whole `tigerbeetle` repo but only runs commands inside a configured root directory.
-Because `zig build wasm` (see above) must run from the *repo root* — it needs `build.zig` and the
-rest of the Zig sources, not just this package — `build`/`deploy`/`version` all `cd` there first:
+clones the whole `tigerbeetle` repo. The Deploy/Version commands run from the **repo root**
+regardless of the dashboard's "Root directory" setting (that setting only scopes the separate
+Build command phase, which this package leaves empty), so the commands `cd` into this package
+themselves:
 
 | Setting | Value |
 | - | - |
-| Root directory | `src/clients/wasm-worker` |
+| Root directory | *(doesn't matter — see above; leave as default)* |
 | Build command | *(leave empty — the deploy/version commands below build inline)* |
-| Deploy command | `npm install && npm run build && npx wrangler deploy` |
-| Version command | `npm install && npm run build && npx wrangler versions upload` |
+| Deploy command | `cd src/clients/wasm-worker && npm install && npm run build && npx wrangler deploy` |
+| Version command | `cd src/clients/wasm-worker && npm install && npm run build && npx wrangler versions upload` |
 
 `npm run build` itself is `cd ../../.. && ./zig/download.sh && ./zig/zig build wasm` (see
-`package.json`), which is why it doesn't matter that Root directory is scoped to this package —
-the build step steps back out to the repo root itself before invoking Zig.
+`package.json`) — it steps back out to the repo root to invoke Zig, then the `wrangler`
+commands run back inside `src/clients/wasm-worker` where `wrangler.toml` lives.
 
-If a build fails with `npm error enoent ... open '.../repo/package.json'`, the build ran with
-Root directory effectively `/` instead of `src/clients/wasm-worker` — Cloudflare's dashboard can
-reuse a stale config snapshot on a manual "Retry build", so re-saving the Root directory field
-alone isn't enough to fix an in-flight or retried build; trigger a genuinely new build (e.g. a
-fresh commit push) to pick up the current settings.
+If a build fails with `npm error enoent ... open '.../repo/package.json'`, the Deploy/Version
+command is running from the repo root without first `cd`-ing into `src/clients/wasm-worker` —
+setting "Root directory" in the dashboard does **not** fix this for the deploy/version commands,
+only an explicit `cd` in the command itself does.
