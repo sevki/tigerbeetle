@@ -1228,6 +1228,7 @@ const DeadFilesDetector = struct {
             "build_multiversion.zig",
             "build.zig",
             "dotnet_bindings.zig",
+            "abi.zig",
             "fetch.zig",
             "file_checker.zig",
             "fuzz_tests.zig",
@@ -1419,7 +1420,6 @@ test "tidy unix permissions" {
         "zig/download.sh",
         ".github/ci/test_aof.sh",
         ".github/ci/test_wasm_worker.sh",
-        "src/scripts/cfo_supervisor.sh",
     };
 
     const allocator = std.testing.allocator;
@@ -1482,7 +1482,6 @@ test "tidy extensions" {
         .{"zig/download.sh"},
         .{"zig/download.ps1"},
         .{"zig/download.win.ps1"},
-        .{"src/scripts/cfo_supervisor.sh"},
         .{".github/ci/test_aof.sh"},
         .{".github/ci/test_wasm_worker.sh"},
         .{"src/clients/wasm-worker/wrangler.jsonc"},
