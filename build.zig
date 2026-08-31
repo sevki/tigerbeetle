@@ -309,7 +309,7 @@ pub fn build_with_options(
     build_wasm(b, build_steps.wasm, .{
         .stdx_module = stdx_module,
         .vsr_module = vsr_module,
-        .mode = mode,
+        .mode = options.mode,
     });
 
     // zig build, zig build run
