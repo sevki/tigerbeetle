@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "cd ../../.. && ./zig/download.sh && ./zig/zig build wasm",
     "generate:client": "openapi-typescript openapi.yaml -o src/openapi.d.ts",
     "pretest:celld": "npm run generate:client",
     "test": "npm run test:celld && npm run test:workerd",

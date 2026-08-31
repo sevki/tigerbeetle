@@ -24,17 +24,23 @@ export function startCelld({ port, watchDir }) {
 
   async function waitUntilReady(timeoutMs = 30000) {
     const deadline = Date.now() + timeoutMs;
+    let consecutiveOk = 0;
     while (Date.now() < deadline) {
       if (child.exitCode !== null) {
         throw new Error(`celld exited early (code ${child.exitCode}):\n${output}`);
       }
       try {
         // Any HTTP response (even a 4xx from an unrecognized route) proves the process is up
-        // and the Worker is handling requests — that's all readiness means here.
+        // and the Worker is handling requests. celld's first successful bundle is sometimes
+        // followed almost immediately by one more "change detected; rebuilding" cycle (its file
+        // watcher picking up its own just-written state), which briefly resets in-flight
+        // connections — requiring two consecutive successes (with a short gap) rides out that
+        // one-time blip instead of declaring ready right into it.
         await fetch(`${url}/`, { method: "GET" });
-        return;
+        consecutiveOk += 1;
+        if (consecutiveOk >= 2) return;
       } catch {
-        // Not listening yet.
+        consecutiveOk = 0;
       }
       await new Promise((r) => setTimeout(r, 250));
     }
