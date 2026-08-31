@@ -82,3 +82,28 @@ npm run dev            # celld dev .
 npm run dev:workerd    # wrangler dev
 curl -X POST localhost:9876/ledger/my-ledger/accounts -d '[{"id":"1","ledger":1,"code":10}]'
 ```
+
+## Deploy via Cloudflare Workers Builds
+
+This package is designed to be deployed straight from Cloudflare's dashboard-configured Git
+integration ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)), which
+clones the whole `tigerbeetle` repo but only runs commands inside a configured root directory.
+Because `zig build wasm` (see above) must run from the *repo root* — it needs `build.zig` and the
+rest of the Zig sources, not just this package — `build`/`deploy`/`version` all `cd` there first:
+
+| Setting | Value |
+| - | - |
+| Root directory | `src/clients/wasm-worker` |
+| Build command | *(leave empty — the deploy/version commands below build inline)* |
+| Deploy command | `npm install && npm run build && npx wrangler deploy` |
+| Version command | `npm install && npm run build && npx wrangler versions upload` |
+
+`npm run build` itself is `cd ../../.. && ./zig/download.sh && ./zig/zig build wasm` (see
+`package.json`), which is why it doesn't matter that Root directory is scoped to this package —
+the build step steps back out to the repo root itself before invoking Zig.
+
+If a build fails with `npm error enoent ... open '.../repo/package.json'`, the build ran with
+Root directory effectively `/` instead of `src/clients/wasm-worker` — Cloudflare's dashboard can
+reuse a stale config snapshot on a manual "Retry build", so re-saving the Root directory field
+alone isn't enough to fix an in-flight or retried build; trigger a genuinely new build (e.g. a
+fresh commit push) to pick up the current settings.
