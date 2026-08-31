@@ -50,14 +50,14 @@ curl -fsSL https://celld.dev/install.sh | sh
 must be on `PATH` — `npm install` below pulls it in as a local devDependency, and `npm`/`npx`
 scripts put `node_modules/.bin` on `PATH` automatically.
 
-## API schema
+## API
 
-`openapi.yaml` describes the HTTP API (`/ledger/{ledgerId}/{accounts,transfers,lookup_accounts,
-lookup_transfers}`) that `src/index.mjs` serves — request/response shapes for `Account`/
-`Transfer`/`CreateResult`, matching `src/tigerbeetle.zig`'s wire types (u128/u64 values as
-decimal strings, since JSON numbers can't hold them). `npm run generate:client` runs
-[openapi-typescript](https://openapi-ts.dev) to turn it into `src/openapi.d.ts` (generated,
-gitignored, regenerated automatically before `test:celld` — see `pretest:celld`).
+See [`API.md`](./API.md) for the HTTP API (`/ledger/{ledgerId}/{accounts,transfers,
+lookup_accounts,lookup_transfers}`) — endpoints, request/response fields, and error handling.
+[`openapi.yaml`](./openapi.yaml) is the machine-readable version of the same API. `npm run
+generate:client` runs [openapi-typescript](https://openapi-ts.dev) to turn it into
+`src/openapi.d.ts` (generated, gitignored, regenerated automatically before `test:celld` — see
+`pretest:celld`).
 
 `test/openapi.celld.test.mjs` drives the same real `celld dev` process as the other celld tests,
 but through an [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) client typed against that
