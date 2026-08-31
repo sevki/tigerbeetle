@@ -1456,9 +1456,9 @@ test "tidy extensions" {
         .{".h"},     .{".hcl"},  .{".html"},   .{".java"},    .{".js"},
         .{".json"},  .{".md"},   .{".mjs"},    .{".mod"},     .{".mts"},
         .{".props"}, .{".py"},   .{".rs"},     .{".service"}, .{".sln"},
-        .{".sum"},   .{".svg"},  .{".toml"},   .{".ts"},      .{".txt"},
-        .{".xml"},   .{".yaml"}, .{".yml"},    .{".zig"},     .{".zon"},
-        .{".rb"},
+        .{".sum"},   .{".svg"},  .{".toml"},   .{".ts"},      .{".tsx"},
+        .{".txt"},   .{".xml"},  .{".yaml"},   .{".yml"},     .{".zig"},
+        .{".zon"},   .{".rb"},
     });
 
     const exceptions = std.StaticStringMap(void).initComptime(.{
@@ -1468,6 +1468,7 @@ test "tidy extensions" {
         .{"CNAME"},
         .{"exclude-pmd.properties"},
         .{"favicon.png"},
+        .{"favicon.ico"},
         .{"notfound-light.webp"},
         .{"notfound-dark.webp"},
         .{"preview.webp"},
