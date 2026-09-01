@@ -27,6 +27,7 @@ import { useLedgerSettings } from "@/lib/ledger-settings";
 import { useLocalHistory } from "@/lib/local-history";
 import { randomId } from "@/lib/id";
 import { STATUS_OK, type Transfer, LedgerApiError } from "@/lib/ledger-api";
+import { formatAmount } from "@/lib/currency";
 
 export function TransfersPage() {
   const client = useLedgerClient();
@@ -326,10 +327,15 @@ export function TransfersPage() {
                           {t.credit_account_id}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {t.amount}
+                          {formatAmount(t.amount, t.currency)}
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary">{t.ledger}</Badge>
+                          {t.currency ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              {t.currency.name}
+                            </span>
+                          ) : null}
                         </TableCell>
                       </TableRow>
                     ))}

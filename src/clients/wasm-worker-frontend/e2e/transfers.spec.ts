@@ -27,8 +27,9 @@ test("moves a transfer between two accounts and shows real double-entry balances
   await page.goto("/accounts");
   const debitRow = page.locator("tbody tr", { hasText: debitId });
   const creditRow = page.locator("tbody tr", { hasText: creditId });
-  await expect(debitRow.locator("td").nth(3)).toHaveText("250"); // debits posted
-  await expect(creditRow.locator("td").nth(4)).toHaveText("250"); // credits posted
+  // Columns: Name, ID, Ledger, Code, Debits posted, Credits posted.
+  await expect(debitRow.locator("td").nth(4)).toHaveText("250"); // debits posted
+  await expect(creditRow.locator("td").nth(5)).toHaveText("250"); // credits posted
 });
 
 test("rejected transfer (nonexistent credit account) surfaces the rejection, not a false success", async ({

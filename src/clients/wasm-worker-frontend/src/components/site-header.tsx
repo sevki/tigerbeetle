@@ -17,6 +17,7 @@ const NAV_LINKS = [
   { href: "/", label: "Overview" },
   { href: "/accounts", label: "Accounts" },
   { href: "/transfers", label: "Transfers" },
+  { href: "/codes", label: "Codes" },
 ];
 
 export function SiteHeader() {

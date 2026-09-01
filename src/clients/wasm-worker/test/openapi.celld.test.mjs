@@ -25,6 +25,7 @@ const doc = loadOpenApiDocument();
 const validateCreateResults = ajv.compile(responseArraySchema(doc, "CreateResult"));
 const validateAccounts = ajv.compile(responseArraySchema(doc, "Account"));
 const validateTransfers = ajv.compile(responseArraySchema(doc, "Transfer"));
+const validateCodes = ajv.compile(responseArraySchema(doc, "Code"));
 
 let celld;
 /** @type {import("openapi-fetch").Client<paths>} */
@@ -127,5 +128,34 @@ describe("TigerBeetleLedger HTTP API, via a client generated from openapi.yaml",
     expect(response.status).toBe(200);
     assertValid(validateTransfers, transfers);
     expect(transfers[0].amount).toBe("7");
+  });
+
+  it("registers a code and resolves it as `currency` on accounts/transfers, validated against the schema", async () => {
+    const { data: codes, response: codesRes } = await client.POST("/ledger/{ledgerId}/codes", {
+      params: { path: { ledgerId: "openapi-codes" } },
+      body: [{ ledger: 1, code: 10, kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 }],
+    });
+    expect(codesRes.status).toBe(200);
+    assertValid(validateCodes, codes);
+
+    const { data: listed, response: listRes } = await client.GET("/ledger/{ledgerId}/codes", {
+      params: { path: { ledgerId: "openapi-codes" } },
+    });
+    expect(listRes.status).toBe(200);
+    assertValid(validateCodes, listed);
+    expect(listed).toEqual(codes);
+
+    await client.POST("/ledger/{ledgerId}/accounts", {
+      params: { path: { ledgerId: "openapi-codes" } },
+      body: [{ id: "7", ledger: 1, code: 10, name: "Alice's checking" }],
+    });
+
+    const { data: accounts } = await client.POST("/ledger/{ledgerId}/lookup_accounts", {
+      params: { path: { ledgerId: "openapi-codes" } },
+      body: ["7"],
+    });
+    assertValid(validateAccounts, accounts);
+    expect(accounts[0].name).toBe("Alice's checking");
+    expect(accounts[0].currency).toEqual({ kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 });
   });
 });
