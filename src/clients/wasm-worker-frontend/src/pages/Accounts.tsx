@@ -28,6 +28,7 @@ import { useLocalHistory } from "@/lib/local-history";
 import { randomId } from "@/lib/id";
 import { STATUS_OK, type Account, LedgerApiError } from "@/lib/ledger-api";
 import { formatAmount } from "@/lib/currency";
+import { CodeSelect } from "@/components/code-select";
 
 export function AccountsPage() {
   const client = useLedgerClient();
@@ -183,32 +184,14 @@ export function AccountsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="acc-ledger">Ledger</Label>
-                  <Input
-                    id="acc-ledger"
-                    type="number"
-                    value={form.ledger}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, ledger: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="acc-code">Code</Label>
-                  <Input
-                    id="acc-code"
-                    type="number"
-                    value={form.code}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, code: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-              </div>
+              <CodeSelect
+                idPrefix="acc"
+                ledger={form.ledger}
+                code={form.code}
+                onChange={(ledger, code) =>
+                  setForm((f) => ({ ...f, ledger, code }))
+                }
+              />
               <Button type="submit" className="w-full" disabled={creating}>
                 <Plus className="h-4 w-4" />
                 {creating ? "Creating…" : "Create account"}
