@@ -119,6 +119,48 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
 
+  /ledger/{ledgerId}/codes:
+    get:
+      operationId: listCodes
+      summary: List every registered (ledger, code) meaning for this ledgerId.
+      parameters:
+        - $ref: "#/components/parameters/LedgerId"
+      responses:
+        "200":
+          description: All registered codes, ordered by (ledger, code).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Code"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: upsertCodes
+      summary: Register or update what one or more (ledger, code) pairs mean.
+      parameters:
+        - $ref: "#/components/parameters/LedgerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/CodeUpsert"
+      responses:
+        "200":
+          description: The full updated registry, same shape as GET /codes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Code"
+        "400":
+          $ref: "#/components/responses/Error"
+
 components:
   parameters:
     LedgerId:
@@ -183,6 +225,90 @@ components:
           pattern: "^[0-9]+$"
         user_data_32:
           type: integer
+        name:
+          description: >-
+            Human-readable label. Not a TigerBeetle field -- stored separately in this DO's own
+            SQLite storage, keyed by account id, scoped to this ledgerId.
+          type: string
+
+    Code:
+      description: >-
+        What one (ledger, code) pair means -- a currency, or a non-monetary unit (compute,
+        storage, ...). Scoped to one ledgerId's own SQLite storage; not global.
+      type: object
+      required: [ledger, code, kind, symbol, name, decimals]
+      properties:
+        ledger:
+          description: TigerBeetle's `ledger` field, not the `<ledgerId>` path segment.
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+        code:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        kind:
+          description: Freeform, not validated, e.g. "currency", "compute", "storage".
+          type: string
+        symbol:
+          description: e.g. "$", "vCPU-hr".
+          type: string
+        name:
+          description: e.g. "US Dollar".
+          type: string
+        decimals:
+          description: How many of the smallest unit make one display unit (e.g. 2 for cents).
+          type: integer
+          minimum: 0
+
+    CurrencyInfo:
+      description: >-
+        A Code's metadata without the (ledger, code) pair itself -- embedded in Account/Transfer
+        responses, where ledger/code are already present on the enclosing object.
+      type: object
+      required: [kind, symbol, name, decimals]
+      properties:
+        kind:
+          description: Freeform, not validated, e.g. "currency", "compute", "storage".
+          type: string
+        symbol:
+          description: e.g. "$", "vCPU-hr".
+          type: string
+        name:
+          description: e.g. "US Dollar".
+          type: string
+        decimals:
+          description: How many of the smallest unit make one display unit (e.g. 2 for cents).
+          type: integer
+          minimum: 0
+
+    CodeUpsert:
+      description: Same fields as Code, but `decimals` is optional (defaults to 0).
+      type: object
+      required: [ledger, code, kind, symbol, name]
+      properties:
+        ledger:
+          description: TigerBeetle's `ledger` field, not the `<ledgerId>` path segment.
+          type: integer
+          minimum: 0
+          maximum: 4294967295
+        code:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        kind:
+          description: Freeform, not validated, e.g. "currency", "compute", "storage".
+          type: string
+        symbol:
+          description: e.g. "$", "vCPU-hr".
+          type: string
+        name:
+          description: e.g. "US Dollar".
+          type: string
+        decimals:
+          description: How many of the smallest unit make one display unit (e.g. 2 for cents).
+          type: integer
+          minimum: 0
 
     TransferCreate:
       type: object
@@ -272,6 +398,14 @@ components:
         timestamp:
           type: string
           pattern: "^[0-9]+$"
+        name:
+          description: Set only when this account was created with (or later given) a name.
+          type: string
+        currency:
+          description: >-
+            Set only when this account's (ledger, code) pair has a registered meaning -- see
+            GET /codes.
+          $ref: "#/components/schemas/CurrencyInfo"
 
     Transfer:
       type: object
@@ -312,3 +446,8 @@ components:
         timestamp:
           type: string
           pattern: "^[0-9]+$"
+        currency:
+          description: >-
+            Set only when this transfer's (ledger, code) pair has a registered meaning -- see
+            GET /codes.
+          $ref: "#/components/schemas/CurrencyInfo"

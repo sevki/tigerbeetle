@@ -8,6 +8,7 @@ import Footer from "@/components/footer/footer";
 import { OverviewPage } from "@/pages/Overview";
 import { AccountsPage } from "@/pages/Accounts";
 import { TransfersPage } from "@/pages/Transfers";
+import { CodesPage } from "@/pages/Codes";
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
                   <Route path="/" element={<OverviewPage />} />
                   <Route path="/accounts" element={<AccountsPage />} />
                   <Route path="/transfers" element={<TransfersPage />} />
+                  <Route path="/codes" element={<CodesPage />} />
                 </Routes>
               </main>
               <Footer

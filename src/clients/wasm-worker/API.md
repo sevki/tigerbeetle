@@ -8,6 +8,7 @@ default export's `fetch()`:
 /ledger/<ledgerId>/transfers
 /ledger/<ledgerId>/lookup_accounts
 /ledger/<ledgerId>/lookup_transfers
+/ledger/<ledgerId>/codes
 ```
 
 `<ledgerId>` is an arbitrary string; it's passed to `env.LEDGER.idFromName()`, so the same ID
@@ -41,6 +42,7 @@ Request item fields (unset numeric/flag fields default to `0`):
 | `code` | number | required, non-zero |
 | `flags` | number | optional, bitset — see `src/tigerbeetle.zig`'s `AccountFlags` |
 | `user_data_128`, `user_data_64`, `user_data_32` | decimal string / number | optional |
+| `name` | string | optional, human-readable label — TigerBeetle itself has no such field; stored separately in this DO's own SQLite storage, keyed by account id (see "Names and codes" below) |
 
 Response: a JSON array, one entry per input account, in the same order:
 
@@ -87,12 +89,55 @@ curl -X POST localhost:9876/ledger/my-ledger/lookup_accounts -d '["1"]'
 
 Response: a JSON array of full account records for the IDs that exist (missing IDs are simply
 omitted, not padded with nulls) — same field set as a create request plus `debits_pending`,
-`debits_posted`, `credits_pending`, `credits_posted`, and `timestamp`.
+`debits_posted`, `credits_pending`, `credits_posted`, and `timestamp`, plus (when set) `name` and
+`currency` — see "Names and codes" below.
 
 ## `POST /ledger/<ledgerId>/lookup_transfers`
 
 Same as `lookup_accounts`, but for transfer IDs against `/lookup_transfers`, returning full
-transfer records.
+transfer records (with `currency`, but no `name` — that's an account-level label).
+
+## `GET /ledger/<ledgerId>/codes`
+
+List every `(ledger, code)` pair this ledgerId has registered a meaning for.
+
+```console
+curl localhost:9876/ledger/my-ledger/codes
+```
+
+Response: a JSON array of `{ledger, code, kind, symbol, name, decimals}` objects, ordered by
+`(ledger, code)`.
+
+## `POST /ledger/<ledgerId>/codes`
+
+Register or update what one or more `(ledger, code)` pairs mean. Body: a JSON array of objects;
+an entry with a `(ledger, code)` pair that's already registered overwrites it.
+
+```console
+curl -X POST localhost:9876/ledger/my-ledger/codes \
+  -d '[{"ledger":1,"code":10,"kind":"currency","symbol":"$","name":"US Dollar","decimals":2}]'
+```
+
+| Field | Type | Notes |
+| - | - | - |
+| `ledger` | number | required — TigerBeetle's `ledger` field, not the `<ledgerId>` path segment |
+| `code` | number | required — TigerBeetle's `code` field |
+| `kind` | string | required, e.g. `"currency"`, `"compute"`, `"storage"` — freeform, not validated |
+| `symbol` | string | required, e.g. `"$"`, `"vCPU-hr"` |
+| `name` | string | required, e.g. `"US Dollar"` |
+| `decimals` | number | optional, default `0` — how many of the smallest unit make one display unit (e.g. `2` for cents) |
+
+Response: the full updated list, same shape as `GET /codes`.
+
+### Names and codes
+
+TigerBeetle's own `ledger`/`code` fields are bare integers with no built-in metadata, and
+accounts have no name field at all. `POST /accounts`' optional `name`, and the `/codes` registry
+above, fill that gap — both live in this Durable Object's own SQLite storage (not the operation
+log the ledger state itself is replayed from), scoped to this `<ledgerId>` alone: two different
+ledgers are free to register `code 1` as different things, or name the same account id
+differently. `lookup_accounts`/`lookup_transfers` responses include a resolved `name` (accounts
+only) and `currency` (both) field whenever a match exists; neither is present when unset.
 
 ## Errors
 

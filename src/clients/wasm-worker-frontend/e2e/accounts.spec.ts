@@ -17,8 +17,21 @@ test("creates an account and shows it in the known-accounts table", async ({ pag
   const row = page.locator("tbody tr", { hasText: id });
   await expect(row).toBeVisible();
   const cells = row.locator("td");
-  await expect(cells.nth(3)).toHaveText("0"); // debits posted
-  await expect(cells.nth(4)).toHaveText("0"); // credits posted
+  // Columns: Name, ID, Ledger, Code, Debits posted, Credits posted.
+  await expect(cells.nth(4)).toHaveText("0"); // debits posted
+  await expect(cells.nth(5)).toHaveText("0"); // credits posted
+});
+
+test("names an account on creation and shows the name in the known-accounts table", async ({ page }) => {
+  await page.goto("/accounts");
+
+  const id = await page.locator("#acc-id").inputValue();
+  await page.locator("#acc-name").fill("Alice's checking");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByText("Account created")).toBeVisible();
+
+  const row = page.locator("tbody tr", { hasText: id });
+  await expect(row.locator("td").first()).toHaveText("Alice's checking");
 });
 
 test("looks up an account by ID that wasn't created in this session", async ({ page }) => {

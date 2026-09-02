@@ -27,6 +27,8 @@ import { useLedgerSettings } from "@/lib/ledger-settings";
 import { useLocalHistory } from "@/lib/local-history";
 import { randomId } from "@/lib/id";
 import { STATUS_OK, type Account, LedgerApiError } from "@/lib/ledger-api";
+import { formatAmount } from "@/lib/currency";
+import { CodeSelect } from "@/components/code-select";
 
 export function AccountsPage() {
   const client = useLedgerClient();
@@ -39,6 +41,7 @@ export function AccountsPage() {
   const [creating, setCreating] = React.useState(false);
   const [form, setForm] = React.useState({
     id: randomId(),
+    name: "",
     ledger: "1",
     code: "10",
   });
@@ -76,6 +79,7 @@ export function AccountsPage() {
       const [result] = await client.createAccounts([
         {
           id: form.id,
+          name: form.name.trim() || undefined,
           ledger: Number(form.ledger),
           code: Number(form.code),
           flags: 0,
@@ -85,9 +89,9 @@ export function AccountsPage() {
         toast.error(`Account rejected (status ${result.status})`);
         return;
       }
-      toast.success("Account created", { description: form.id });
+      toast.success("Account created", { description: form.name.trim() || form.id });
       history.add([form.id]);
-      setForm({ id: randomId(), ledger: form.ledger, code: form.code });
+      setForm({ id: randomId(), name: "", ledger: form.ledger, code: form.code });
     } catch (err) {
       toast.error("Failed to create account", {
         description:
@@ -171,32 +175,23 @@ export function AccountsPage() {
                   </Button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="acc-ledger">Ledger</Label>
-                  <Input
-                    id="acc-ledger"
-                    type="number"
-                    value={form.ledger}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, ledger: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="acc-code">Code</Label>
-                  <Input
-                    id="acc-code"
-                    type="number"
-                    value={form.code}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, code: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="acc-name">Name (optional)</Label>
+                <Input
+                  id="acc-name"
+                  placeholder="Alice's checking"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                />
               </div>
+              <CodeSelect
+                idPrefix="acc"
+                ledger={form.ledger}
+                code={form.code}
+                onChange={(ledger, code) =>
+                  setForm((f) => ({ ...f, ledger, code }))
+                }
+              />
               <Button type="submit" className="w-full" disabled={creating}>
                 <Plus className="h-4 w-4" />
                 {creating ? "Creating…" : "Create account"}
@@ -247,6 +242,7 @@ export function AccountsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Name</TableHead>
                       <TableHead>ID</TableHead>
                       <TableHead>Ledger</TableHead>
                       <TableHead>Code</TableHead>
@@ -261,18 +257,30 @@ export function AccountsPage() {
                   <TableBody>
                     {accounts.map((a) => (
                       <TableRow key={a.id}>
+                        <TableCell>
+                          {a.name ?? (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-mono text-xs">
                           {a.id}
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary">{a.ledger}</Badge>
                         </TableCell>
-                        <TableCell>{a.code}</TableCell>
-                        <TableCell className="text-right font-mono">
-                          {a.debits_posted}
+                        <TableCell>
+                          {a.code}
+                          {a.currency ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              ({a.currency.name})
+                            </span>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {a.credits_posted}
+                          {formatAmount(a.debits_posted, a.currency)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatAmount(a.credits_posted, a.currency)}
                         </TableCell>
                       </TableRow>
                     ))}

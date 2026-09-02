@@ -11,6 +11,8 @@ export type TransferInput = components["schemas"]["TransferCreate"];
 export type OperationResult = components["schemas"]["CreateResult"];
 export type Account = components["schemas"]["Account"];
 export type Transfer = components["schemas"]["Transfer"];
+export type Code = components["schemas"]["Code"];
+export type CodeInput = components["schemas"]["CodeUpsert"];
 
 // 0xffffffff — see wasm-worker/API.md's "Errors" section.
 export const STATUS_OK = 4294967295;
@@ -65,6 +67,23 @@ export class LedgerClient {
     const { data, error, response } = await this.client.POST(
       "/ledger/{ledgerId}/lookup_transfers",
       { params: { path: { ledgerId: this.ledgerId } }, body: ids },
+    );
+    if (error) throw new LedgerApiError(error.error, response.status);
+    return data;
+  }
+
+  async listCodes(): Promise<Code[]> {
+    const { data, error, response } = await this.client.GET("/ledger/{ledgerId}/codes", {
+      params: { path: { ledgerId: this.ledgerId } },
+    });
+    if (error) throw new LedgerApiError(error.error, response.status);
+    return data;
+  }
+
+  async upsertCodes(codes: CodeInput[]): Promise<Code[]> {
+    const { data, error, response } = await this.client.POST(
+      "/ledger/{ledgerId}/codes",
+      { params: { path: { ledgerId: this.ledgerId } }, body: codes },
     );
     if (error) throw new LedgerApiError(error.error, response.status);
     return data;

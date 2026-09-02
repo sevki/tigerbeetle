@@ -90,4 +90,17 @@ describe("TigerBeetleLedger Durable Object", () => {
     expect(lookupRes.json[0].debits_posted).toBe("42");
     expect(lookupRes.json[1].credits_posted).toBe("42");
   });
+
+  it("names an account and registers a code's currency meaning, both backed by ctx.storage.sql", async () => {
+    const ledger = stub("test-names-codes");
+
+    await post(ledger, "codes", [
+      { ledger: 1, code: 10, kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 },
+    ]);
+    await post(ledger, "accounts", [{ id: "50", ledger: 1, code: 10, name: "Alice's checking" }]);
+
+    const lookupRes = await post(ledger, "lookup_accounts", ["50"]);
+    expect(lookupRes.json[0].name).toBe("Alice's checking");
+    expect(lookupRes.json[0].currency).toEqual({ kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 });
+  });
 });

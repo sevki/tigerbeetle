@@ -29,6 +29,94 @@ export class TigerBeetleLedger {
       this.nextSeq = Math.max(this.nextSeq, parseSeq(key) + 1);
       replayOne(this.engine, entry);
     }
+
+    // Metadata TigerBeetle itself doesn't model: an account's human-readable name, and what a
+    // given (ledger, code) pair actually *means* (a currency, or a non-monetary unit like
+    // compute/storage). Kept in this same Durable Object's real SQLite storage (this class is
+    // migrated onto `new_sqlite_classes`, see wrangler.toml) -- not the operation log above,
+    // since it isn't state the wasm engine needs replayed, just a lookup table alongside it.
+    // Scoped per-ledgerId, same as everything else this DO holds: two different ledgers are free
+    // to assign `code 1` to different things.
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS account_names (
+        account_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+      )
+    `);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS codes (
+        ledger INTEGER NOT NULL,
+        code INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        name TEXT NOT NULL,
+        decimals INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (ledger, code)
+      )
+    `);
+  }
+
+  #nameAccounts(accounts, results) {
+    for (let i = 0; i < accounts.length; i++) {
+      if (results[i].status === CREATE_SUCCESS && accounts[i].name) {
+        this.ctx.storage.sql.exec(
+          "INSERT OR REPLACE INTO account_names (account_id, name) VALUES (?, ?)",
+          String(accounts[i].id),
+          accounts[i].name,
+        );
+      }
+    }
+  }
+
+  #accountName(id) {
+    const row = this.ctx.storage.sql.exec("SELECT name FROM account_names WHERE account_id = ?", String(id)).toArray()[0];
+    return row?.name;
+  }
+
+  #code(ledger, code) {
+    const row = this.ctx.storage.sql
+      .exec("SELECT kind, symbol, name, decimals FROM codes WHERE ledger = ? AND code = ?", ledger, code)
+      .toArray()[0];
+    return row ? { kind: row.kind, symbol: row.symbol, name: row.name, decimals: row.decimals } : undefined;
+  }
+
+  #listCodes() {
+    return this.ctx.storage.sql
+      .exec("SELECT ledger, code, kind, symbol, name, decimals FROM codes ORDER BY ledger, code")
+      .toArray();
+  }
+
+  #upsertCodes(entries) {
+    for (const c of entries) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO codes (ledger, code, kind, symbol, name, decimals) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (ledger, code) DO UPDATE SET
+           kind = excluded.kind, symbol = excluded.symbol, name = excluded.name, decimals = excluded.decimals`,
+        Number(c.ledger),
+        Number(c.code),
+        c.kind,
+        c.symbol,
+        c.name,
+        Number(c.decimals ?? 0),
+      );
+    }
+    return this.#listCodes();
+  }
+
+  #enrichAccount(a) {
+    const out = serializeAccount(a);
+    const name = this.#accountName(a.id);
+    if (name !== undefined) out.name = name;
+    const code = this.#code(a.ledger, a.code);
+    if (code !== undefined) out.currency = code;
+    return out;
+  }
+
+  #enrichTransfer(t) {
+    const out = serializeTransfer(t);
+    const code = this.#code(t.ledger, t.code);
+    if (code !== undefined) out.currency = code;
+    return out;
   }
 
   // Note the narrow race this doesn't close: `engine.createAccounts`/`createTransfers` already
@@ -56,6 +144,7 @@ export class TigerBeetleLedger {
         const encoded = accounts.map(normalizeAccount);
         const results = this.engine.createAccounts(encoded);
         await this.#appendLogOrFail(this.engine.opCreateAccounts, encoded);
+        this.#nameAccounts(accounts, results);
         return json(results.map(serializeResult));
       }
 
@@ -70,13 +159,25 @@ export class TigerBeetleLedger {
       if (request.method === "POST" && url.pathname === "/lookup_accounts") {
         const ids = (await request.json()).map(BigInt);
         const accounts = this.engine.lookupAccounts(ids);
-        return json(accounts.map(serializeAccount));
+        return json(accounts.map((a) => this.#enrichAccount(a)));
       }
 
       if (request.method === "POST" && url.pathname === "/lookup_transfers") {
         const ids = (await request.json()).map(BigInt);
         const transfers = this.engine.lookupTransfers(ids);
-        return json(transfers.map(serializeTransfer));
+        return json(transfers.map((t) => this.#enrichTransfer(t)));
+      }
+
+      // Registry of what a (ledger, code) pair *means* -- a currency, or a non-monetary unit
+      // (compute, storage, ...). Scoped to this ledgerId's own SQLite storage, not global: two
+      // ledgers are free to assign `code 1` to different things (see #restore).
+      if (request.method === "GET" && url.pathname === "/codes") {
+        return json(this.#listCodes());
+      }
+
+      if (request.method === "POST" && url.pathname === "/codes") {
+        const entries = await request.json();
+        return json(this.#upsertCodes(entries));
       }
 
       return new Response("not found", { status: 404 });
@@ -135,6 +236,9 @@ export default {
 };
 
 class AppendLogError extends Error {}
+
+// CreateAccountResult/CreateTransferResult's "ok" value (src/tigerbeetle.zig) -- u32 max.
+const CREATE_SUCCESS = 0xffffffff;
 
 function replayOne(engine, entry) {
   if (entry.operation === engine.opCreateAccounts) {

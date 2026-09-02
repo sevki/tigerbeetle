@@ -35,6 +35,11 @@ async function post(ledgerId, path_, body) {
   return { status: res.status, json: await res.json() };
 }
 
+async function get(ledgerId, path_) {
+  const res = await fetch(`${celld.url}/ledger/${ledgerId}/${path_}`);
+  return { status: res.status, json: await res.json() };
+}
+
 describe("TigerBeetleLedger Durable Object (on celld)", () => {
   it("creates two accounts and moves a transfer between them symmetrically", async () => {
     const accountsRes = await post("test-basic", "accounts", [
@@ -91,4 +96,66 @@ describe("TigerBeetleLedger Durable Object (on celld)", () => {
     expect(lookupRes.json[0].debits_posted).toBe("42");
     expect(lookupRes.json[1].credits_posted).toBe("42");
   }, 60000);
+
+  it("names an account on creation and resolves it back on lookup", async () => {
+    await post("test-names", "accounts", [
+      { id: "20", ledger: 1, code: 10, name: "Alice's checking" },
+      { id: "21", ledger: 1, code: 10 }, // no name
+    ]);
+
+    const lookupRes = await post("test-names", "lookup_accounts", ["20", "21"]);
+    expect(lookupRes.json[0].name).toBe("Alice's checking");
+    expect(lookupRes.json[1].name).toBeUndefined();
+  });
+
+  it("doesn't name an account that was rejected", async () => {
+    await post("test-names-reject", "accounts", [{ id: "22", ledger: 1, code: 10 }]);
+    // id 22 already exists -> rejected.
+    await post("test-names-reject", "accounts", [
+      { id: "22", ledger: 1, code: 10, name: "shouldn't stick" },
+    ]);
+
+    const lookupRes = await post("test-names-reject", "lookup_accounts", ["22"]);
+    expect(lookupRes.json[0].name).toBeUndefined();
+  });
+
+  it("registers a code as a currency and resolves it on accounts and transfers", async () => {
+    const codesRes = await post("test-codes", "codes", [
+      { ledger: 1, code: 10, kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 },
+    ]);
+    expect(codesRes.status).toBe(200);
+    expect(codesRes.json).toEqual([
+      { ledger: 1, code: 10, kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 },
+    ]);
+
+    const listRes = await get("test-codes", "codes");
+    expect(listRes.json).toEqual(codesRes.json);
+
+    await post("test-codes", "accounts", [
+      { id: "30", ledger: 1, code: 10 },
+      { id: "31", ledger: 1, code: 10 },
+    ]);
+    await post("test-codes", "transfers", [
+      { id: "500", debit_account_id: "30", credit_account_id: "31", amount: "9", ledger: 1, code: 10 },
+    ]);
+
+    const accountsRes = await post("test-codes", "lookup_accounts", ["30"]);
+    expect(accountsRes.json[0].currency).toEqual({ kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 });
+
+    const transfersRes = await post("test-codes", "lookup_transfers", ["500"]);
+    expect(transfersRes.json[0].currency).toEqual({ kind: "currency", symbol: "$", name: "US Dollar", decimals: 2 });
+  });
+
+  it("re-registering a (ledger, code) pair overwrites its previous meaning", async () => {
+    await post("test-codes-overwrite", "codes", [
+      { ledger: 2, code: 20, kind: "currency", symbol: "€", name: "Euro", decimals: 2 },
+    ]);
+    const res = await post("test-codes-overwrite", "codes", [
+      { ledger: 2, code: 20, kind: "compute", symbol: "vCPU-hr", name: "Compute hour" },
+    ]);
+
+    expect(res.json).toEqual([
+      { ledger: 2, code: 20, kind: "compute", symbol: "vCPU-hr", name: "Compute hour", decimals: 0 },
+    ]);
+  });
 });

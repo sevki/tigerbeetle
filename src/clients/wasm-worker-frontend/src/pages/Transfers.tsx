@@ -27,6 +27,8 @@ import { useLedgerSettings } from "@/lib/ledger-settings";
 import { useLocalHistory } from "@/lib/local-history";
 import { randomId } from "@/lib/id";
 import { STATUS_OK, type Transfer, LedgerApiError } from "@/lib/ledger-api";
+import { formatAmount } from "@/lib/currency";
+import { CodeSelect } from "@/components/code-select";
 
 export function TransfersPage() {
   const client = useLedgerClient();
@@ -223,43 +225,25 @@ export function TransfersPage() {
                   required
                 />
               </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="xfer-amount">Amount</Label>
-                  <Input
-                    id="xfer-amount"
-                    value={form.amount}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, amount: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="xfer-ledger">Ledger</Label>
-                  <Input
-                    id="xfer-ledger"
-                    type="number"
-                    value={form.ledger}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, ledger: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="xfer-code">Code</Label>
-                  <Input
-                    id="xfer-code"
-                    type="number"
-                    value={form.code}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, code: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="xfer-amount">Amount</Label>
+                <Input
+                  id="xfer-amount"
+                  value={form.amount}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, amount: e.target.value }))
+                  }
+                  required
+                />
               </div>
+              <CodeSelect
+                idPrefix="xfer"
+                ledger={form.ledger}
+                code={form.code}
+                onChange={(ledger, code) =>
+                  setForm((f) => ({ ...f, ledger, code }))
+                }
+              />
               <Button type="submit" className="w-full" disabled={creating}>
                 <Plus className="h-4 w-4" />
                 {creating ? "Creating…" : "Create transfer"}
@@ -326,10 +310,15 @@ export function TransfersPage() {
                           {t.credit_account_id}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {t.amount}
+                          {formatAmount(t.amount, t.currency)}
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary">{t.ledger}</Badge>
+                          {t.currency ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              {t.currency.name}
+                            </span>
+                          ) : null}
                         </TableCell>
                       </TableRow>
                     ))}
